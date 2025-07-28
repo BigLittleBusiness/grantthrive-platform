@@ -1,0 +1,31 @@
+grantthrive-platform/
+├── README.md
+├── .gitignore
+├── LICENSE
+├── docs/
+│   ├── architecture/
+│   ├── api/
+│   ├── deployment/
+│   └── user-guides/
+├── frontend/
+│   ├── src/
+│   ├── public/
+│   ├── tests/
+│   └── package.json
+├── backend/
+│   ├── src/
+│   ├── tests/
+│   ├── config/
+│   └── requirements.txt (or package.json)
+├── database/
+│   ├── migrations/
+│   ├── seeds/
+│   └── schemas/
+├── scripts/
+│   ├── setup/
+│   ├── deployment/
+│   └── maintenance/
+└── .github/
+    ├── workflows/
+    ├── ISSUE_TEMPLATE/
+    └── PULL_REQUEST_TEMPLATE.md
