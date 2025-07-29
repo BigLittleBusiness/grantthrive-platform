@@ -1,0 +1,32 @@
+---
+name: Development Task
+about: Technical development task for GrantThrive
+title: '[TASK] '
+labels: 'development, session-ready'
+assignees: ''
+---
+
+## Task Description
+Clear description of the development work to be completed.
+
+## Technical Requirements
+- Specific technical requirements
+- Dependencies on other components
+- Performance or security considerations
+
+## Definition of Done
+- [ ] Code implemented and tested
+- [ ] Unit tests written and passing
+- [ ] Integration tests updated
+- [ ] Documentation updated
+- [ ] Pull request reviewed and merged
+
+## Session Scope
+- [ ] Single session task
+- [ ] Multi-session task (break down further)
+
+## Related Issues
+Links to related issues or dependencies.
+
+## Technical Notes
+Any specific implementation guidance or architectural considerations.
