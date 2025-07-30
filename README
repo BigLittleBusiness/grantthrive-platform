@@ -1,0 +1,12 @@
+# GrantThrive API Documentation
+
+## Overview
+
+The GrantThrive API provides comprehensive access to all platform functionality through RESTful endpoints. The API is designed to support both the web application and potential third-party integrations.
+
+## Authentication
+
+All API endpoints require authentication using JWT tokens:
+
+```http
+Authorization: Bearer <jwt_token>
