@@ -1,49 +1,103 @@
 # GrantThrive API Documentation
 
-## Overview
+## API Overview
 
-The GrantThrive API provides comprehensive access to all platform functionality through RESTful endpoints. The API is designed to support both the web application and potential third-party integrations.
+The GrantThrive Platform provides a comprehensive RESTful API for grant management, user authentication, and community features.
+
+## Base URL
+- **Development**: `http://localhost:8000`
+- **Staging**: `https://api-staging.grantthrive.com`
+- **Production**: `https://api.grantthrive.com`
 
 ## Authentication
 
-All API endpoints require authentication using JWT tokens:
+### JWT Token Authentication
+All API endpoints require authentication using JWT tokens.
 
-```http
-Authorization: Bearer <jwt_token>
+```bash
+# Login to get access token
+POST /auth/login
+{
+  "email": "user@example.com",
+  "password": "password"
+}
+
+# Use token in Authorization header
+Authorization: Bearer <access_token>
 ```
 
 ## Core Endpoints
 
 ### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/refresh` - Token refresh
-- `POST /api/auth/logout` - User logout
+- `POST /auth/register` - User registration
+- `POST /auth/login` - User login
+- `POST /auth/refresh` - Token refresh
+- `POST /auth/logout` - User logout
+- `POST /auth/verify-email` - Email verification
+- `POST /auth/forgot-password` - Password reset request
+- `POST /auth/reset-password` - Password reset
 
 ### Grant Management
-- `GET /api/grants` - List available grants
-- `POST /api/grants` - Create new grant program
-- `GET /api/grants/{id}` - Get grant details
-- `POST /api/applications` - Submit grant application
-- `GET /api/applications` - List user applications
+- `GET /grants` - List grant programs
+- `POST /grants` - Create grant program
+- `GET /grants/{id}` - Get grant program details
+- `PUT /grants/{id}` - Update grant program
+- `DELETE /grants/{id}` - Delete grant program
 
-### Community Features
-- `GET /api/forums` - List discussion forums
-- `POST /api/forums/{id}/posts` - Create forum post
-- `GET /api/resources` - List resource library items
-- `POST /api/resources` - Upload new resource
+### Applications
+- `GET /applications` - List applications
+- `POST /applications` - Submit application
+- `GET /applications/{id}` - Get application details
+- `PUT /applications/{id}` - Update application
+- `DELETE /applications/{id}` - Withdraw application
 
-## Error Handling
+### Community
+- `GET /forums` - List forum discussions
+- `POST /forums` - Create discussion
+- `GET /resources` - List resources
+- `POST /resources` - Upload resource
 
-The API uses standard HTTP status codes and returns error details in JSON format:
+## Response Format
+
+All API responses follow a consistent format:
 
 ```json
 {
-  "error": "validation_error",
-  "message": "Invalid input data",
-  "details": {
-    "field": "email",
-    "issue": "Invalid email format"
-  }
+  "success": true,
+  "data": {
+    // Response data
+  },
+  "message": "Success message",
+  "timestamp": "2024-01-01T00:00:00Z"
 }
-``` 
+```
+
+## Error Handling
+
+Error responses include detailed information:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation failed",
+    "details": {
+      "field": "error message"
+    }
+  },
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+## Rate Limiting
+
+API requests are rate-limited:
+- **Authenticated users**: 1000 requests per hour
+- **Unauthenticated users**: 100 requests per hour
+
+## Documentation
+
+- **Interactive API Docs**: Available at `/docs` when running locally
+- **OpenAPI Specification**: Available at `/openapi.json`
+- **Postman Collection**: Available for import 

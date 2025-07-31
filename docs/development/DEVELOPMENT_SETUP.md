@@ -22,9 +22,9 @@ cd grantthrive-platform
 
 # Run the branch setup script
 # For Windows:
-./scripts/setup-branches.ps1
+./scripts/setup/setup-branches.ps1
 # For Unix/Linux:
-./scripts/setup-branches.sh
+./scripts/setup/setup-branches.sh
 ```
 
 ### 2. Configure Repository Secrets
