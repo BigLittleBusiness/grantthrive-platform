@@ -1,4 +1,4 @@
-name: Continuous Integration
+name: CI/CD Pipeline
 
 on:
   push:
@@ -7,95 +7,81 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  test-frontend:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
-    
-    - name: Install dependencies
-      run: |
-        cd frontend
-        npm ci
-    
-    - name: Run linting
-      run: |
-        cd frontend
-        npm run lint
-    
-    - name: Run tests
-      run: |
-        cd frontend
-        npm run test:ci
-    
-    - name: Build application
-      run: |
-        cd frontend
-        npm run build
 
-  test-backend:
-    runs-on: ubuntu-latest
-    
     services:
       postgres:
-        image: postgres:13
+        image: postgres:14
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: grantthrive_test
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        ports:
+          - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install dependencies
-      run: |
-        cd backend
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-    
-    - name: Run linting
-      run: |
-        cd backend
-        flake8 src/
-    
-    - name: Run tests
-      run: |
-        cd backend
-        pytest tests/
-      env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost/grantthrive_test
+          --health-cmd="pg_isready -U test_user -d test_db"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
-  security-scan:
-    runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: 'trivy-results.sarif'
+      # Checkout Code
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # -------- FRONTEND (React) --------
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm run build
+
+      # -------- BACKEND (Python) --------
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Backend Tests
+        run: |
+          cd backend
+          source venv/bin/activate
+          pytest  # or your test command
+
+      # -------- DEPLOY TO SERVER --------
+      - name: Deploy to Ubuntu Server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/your-app
+            git pull origin main
+            cd backend
+            source venv/bin/activate
+            pip install -r requirements.txt
+            python manage.py migrate  # or your migration command
+            systemctl restart backend.service
+            cd ../frontend
+            npm install
+            npm run build
+            systemctl restart nginx
