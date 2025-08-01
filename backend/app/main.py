@@ -10,6 +10,7 @@ import time
 import logging
 from .core.config import settings
 from .db.database import create_tables
+from .api.v1.api import api_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -85,7 +86,12 @@ async def root():
         "message": "GrantThrive API",
         "version": settings.APP_VERSION,
         "docs_url": "/docs" if settings.DEBUG else "Contact administrator for API documentation",
-        "status": "operational"
+        "status": "operational",
+        "endpoints": {
+            "authentication": "/api/v1/auth",
+            "users": "/api/v1/users",
+            "health": "/health"
+        }
     }
 
 
@@ -112,7 +118,6 @@ async def shutdown_event():
     logger.info("Application shutdown completed")
 
 
-# Import and include routers (will be added in next phase)
-# from .api.v1.api import api_router
-# app.include_router(api_router, prefix="/api/v1")
+# Include API routes
+app.include_router(api_router, prefix="/api/v1")
 

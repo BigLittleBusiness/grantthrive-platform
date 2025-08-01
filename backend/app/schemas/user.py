@@ -2,7 +2,7 @@
 GrantThrive User Schemas
 Pydantic models for API request/response serialization
 """
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from datetime import datetime
 from ..models.user import UserRole, UserStatus
@@ -25,7 +25,8 @@ class UserCreate(UserBase):
     role: UserRole = UserRole.APPLICANT
     username: Optional[str] = None
     
-    @validator('password')
+    @field_validator('password')
+    @classmethod
     def validate_password(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')
@@ -55,8 +56,7 @@ class UserResponse(UserBase):
     created_at: datetime
     last_login: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class UserProfile(UserResponse):
@@ -65,8 +65,7 @@ class UserProfile(UserResponse):
     is_admin: bool
     is_client_user: bool
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # Authentication schemas
@@ -100,7 +99,8 @@ class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
     
-    @validator('new_password')
+    @field_validator('new_password')
+    @classmethod
     def validate_password(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')
@@ -112,7 +112,8 @@ class ChangePassword(BaseModel):
     current_password: str
     new_password: str
     
-    @validator('new_password')
+    @field_validator('new_password')
+    @classmethod
     def validate_password(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')

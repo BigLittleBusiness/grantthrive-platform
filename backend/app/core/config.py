@@ -48,7 +48,11 @@ class Settings(BaseSettings):
     def assemble_db_connection(cls, v: Optional[str], info) -> str:
         if isinstance(v, str):
             return v
-        values = info.data if hasattr(info, 'data') else {}
+        # Default to SQLite for development if no DATABASE_URL provided
+        if hasattr(info, 'data'):
+            values = info.data
+        else:
+            values = {}
         return f"postgresql://{values.get('DB_USER', 'postgres')}:{values.get('DB_PASSWORD', 'password')}@{values.get('DB_HOST', 'localhost')}:{values.get('DB_PORT', 5432)}/{values.get('DB_NAME', 'grantthrive')}"
     
     model_config = {
