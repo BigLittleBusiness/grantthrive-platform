@@ -1,36 +1,26 @@
 """
 GrantThrive Grant Models
-Comprehensive grant management with application lifecycle support
+Database models for grant management system
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, Text, Numeric, ForeignKey
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
-from enum import Enum as PyEnum
-from decimal import Decimal
+from sqlalchemy.types import TypeDecorator, TEXT
+from datetime import datetime
+from enum import Enum
+import json
+
 from ..db.database import Base
 
 
-class GrantStatus(PyEnum):
+class GrantStatus(str, Enum):
     """Grant status enumeration"""
     DRAFT = "draft"
     PUBLISHED = "published"
     CLOSED = "closed"
-    SUSPENDED = "suspended"
     ARCHIVED = "archived"
 
 
-class ApplicationStatus(PyEnum):
-    """Application status enumeration"""
-    DRAFT = "draft"
-    SUBMITTED = "submitted"
-    UNDER_REVIEW = "under_review"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    WITHDRAWN = "withdrawn"
-    REQUIRES_CHANGES = "requires_changes"
-
-
-class GrantCategory(PyEnum):
+class GrantCategory(str, Enum):
     """Grant category enumeration"""
     COMMUNITY = "community"
     ENVIRONMENT = "environment"
@@ -42,158 +32,139 @@ class GrantCategory(PyEnum):
     ECONOMIC_DEVELOPMENT = "economic_development"
     YOUTH = "youth"
     SENIORS = "seniors"
+    DISABILITY = "disability"
+    INDIGENOUS = "indigenous"
     OTHER = "other"
 
 
+class ApplicationStatus(str, Enum):
+    """Application status enumeration"""
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    UNDER_REVIEW = "under_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    WITHDRAWN = "withdrawn"
+
+
+# Custom JSON type for SQLite compatibility
+class JSONType(TypeDecorator):
+    """JSON type that works with SQLite"""
+    impl = TEXT
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return json.loads(value)
+        return value
+
+
 class Grant(Base):
-    """
-    Core grant model for managing funding opportunities
-    """
+    """Grant model for managing funding opportunities"""
     __tablename__ = "grants"
 
-    # Primary identification
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False, index=True)
-    slug = Column(String(255), unique=True, index=True, nullable=False)
-    
-    # Grant details
+    slug = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=False)
-    objectives = Column(Text, nullable=True)
-    eligibility_criteria = Column(Text, nullable=False)
-    application_guidelines = Column(Text, nullable=True)
+    objectives = Column(Text)
+    eligibility_criteria = Column(Text)
+    application_guidelines = Column(Text)
     
-    # Financial information
-    total_funding = Column(Numeric(12, 2), nullable=False)
-    min_amount = Column(Numeric(12, 2), nullable=True)
-    max_amount = Column(Numeric(12, 2), nullable=True)
-    allocated_amount = Column(Numeric(12, 2), default=0)
+    # Funding details
+    total_funding = Column(Numeric(15, 2))
+    min_amount = Column(Numeric(15, 2))
+    max_amount = Column(Numeric(15, 2))
+    allocated_amount = Column(Numeric(15, 2), default=0)
     
     # Categorization
-    category = Column(Enum(GrantCategory), nullable=False)
-    tags = Column(String(500), nullable=True)  # Comma-separated tags
+    category = Column(String(50), nullable=False, index=True)
+    tags = Column(JSONType)  # List of tags
     
     # Timeline
-    application_open_date = Column(DateTime(timezone=True), nullable=False)
-    application_close_date = Column(DateTime(timezone=True), nullable=False)
-    decision_date = Column(DateTime(timezone=True), nullable=True)
-    project_start_date = Column(DateTime(timezone=True), nullable=True)
-    project_end_date = Column(DateTime(timezone=True), nullable=True)
+    application_open_date = Column(DateTime, nullable=False)
+    application_close_date = Column(DateTime, nullable=False)
+    decision_date = Column(DateTime)
+    project_start_date = Column(DateTime)
+    project_end_date = Column(DateTime)
     
-    # Status and visibility
-    status = Column(Enum(GrantStatus), nullable=False, default=GrantStatus.DRAFT)
+    # Status and features
+    status = Column(String(20), default=GrantStatus.DRAFT, index=True)
     is_featured = Column(Boolean, default=False)
     is_recurring = Column(Boolean, default=False)
     
-    # Organization (multi-tenant support)
-    organization_id = Column(Integer, nullable=False, index=True)
+    # Organization details
+    organization_id = Column(Integer, ForeignKey("users.organization_id"), index=True)
     organization_name = Column(String(255), nullable=False)
-    
-    # Contact information
     contact_email = Column(String(255), nullable=False)
-    contact_phone = Column(String(20), nullable=True)
-    contact_person = Column(String(255), nullable=True)
+    contact_phone = Column(String(50))
+    contact_person = Column(String(255))
     
     # Application requirements
-    required_documents = Column(Text, nullable=True)  # JSON string
-    application_form_fields = Column(Text, nullable=True)  # JSON string
+    required_documents = Column(JSONType)  # List of required documents
+    application_form_fields = Column(JSONType)  # Custom form fields
     
-    # Metadata
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # Metrics
+    view_count = Column(Integer, default=0)
+    application_count = Column(Integer, default=0)
+    
+    # Audit fields
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
     applications = relationship("Application", back_populates="grant")
     creator = relationship("User", foreign_keys=[created_by])
-    
-    def __repr__(self):
-        return f"<Grant(id={self.id}, title='{self.title}', status='{self.status.value}')>"
-    
-    @property
-    def is_open(self) -> bool:
-        """Check if grant is currently open for applications"""
-        from datetime import datetime
-        now = datetime.utcnow()
-        return (
-            self.status == GrantStatus.PUBLISHED and
-            self.application_open_date <= now <= self.application_close_date
-        )
-    
-    @property
-    def remaining_funding(self) -> Decimal:
-        """Calculate remaining funding available"""
-        return self.total_funding - self.allocated_amount
-    
-    @property
-    def application_count(self) -> int:
-        """Get total number of applications"""
-        return len(self.applications)
 
 
 class Application(Base):
-    """
-    Grant application model
-    """
+    """Application model for grant applications"""
     __tablename__ = "applications"
 
-    # Primary identification
     id = Column(Integer, primary_key=True, index=True)
-    reference_number = Column(String(50), unique=True, index=True, nullable=False)
+    reference_number = Column(String(50), unique=True, index=True)
     
-    # Application details
+    # Project details
     project_title = Column(String(255), nullable=False)
     project_description = Column(Text, nullable=False)
-    requested_amount = Column(Numeric(12, 2), nullable=False)
-    project_duration = Column(String(100), nullable=True)
+    requested_amount = Column(Numeric(15, 2), nullable=False)
+    project_duration = Column(String(100))
     
-    # Applicant information
-    applicant_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    organization_name = Column(String(255), nullable=True)
-    abn_acn = Column(String(20), nullable=True)
+    # Applicant details
+    applicant_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    organization_name = Column(String(255), nullable=False)
+    abn_acn = Column(String(50))
     
-    # Grant association
-    grant_id = Column(Integer, ForeignKey("grants.id"), nullable=False)
-    
-    # Status and workflow
-    status = Column(Enum(ApplicationStatus), nullable=False, default=ApplicationStatus.DRAFT)
-    submitted_at = Column(DateTime(timezone=True), nullable=True)
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    # Review information
-    reviewer_notes = Column(Text, nullable=True)
-    feedback = Column(Text, nullable=True)
-    score = Column(Integer, nullable=True)  # 0-100 scoring system
+    # Grant relationship
+    grant_id = Column(Integer, ForeignKey("grants.id"), nullable=False, index=True)
     
     # Application data
-    form_data = Column(Text, nullable=True)  # JSON string for dynamic form data
-    documents = Column(Text, nullable=True)  # JSON string for document references
+    form_data = Column(JSONType)  # Custom form responses
+    documents = Column(JSONType)  # List of uploaded documents
     
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # Status and workflow
+    status = Column(String(20), default=ApplicationStatus.DRAFT, index=True)
+    submitted_at = Column(DateTime)
+    reviewed_at = Column(DateTime)
+    reviewed_by = Column(Integer, ForeignKey("users.id"))
+    
+    # Review details
+    reviewer_notes = Column(Text)
+    feedback = Column(Text)
+    score = Column(Integer)  # 0-100 score
+    
+    # Audit fields
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     grant = relationship("Grant", back_populates="applications")
     applicant = relationship("User", foreign_keys=[applicant_id])
     reviewer = relationship("User", foreign_keys=[reviewed_by])
-    
-    def __repr__(self):
-        return f"<Application(id={self.id}, ref='{self.reference_number}', status='{self.status.value}')>"
-    
-    @property
-    def is_editable(self) -> bool:
-        """Check if application can be edited"""
-        return self.status in [ApplicationStatus.DRAFT, ApplicationStatus.REQUIRES_CHANGES]
-    
-    @property
-    def is_submitted(self) -> bool:
-        """Check if application has been submitted"""
-        return self.status != ApplicationStatus.DRAFT
-    
-    def generate_reference_number(self) -> str:
-        """Generate unique reference number"""
-        from datetime import datetime
-        year = datetime.now().year
-        return f"GT{year}{self.grant_id:04d}{self.id:06d}"
 
