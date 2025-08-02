@@ -516,3 +516,474 @@ def get_user_following(db: Session, user_id: int, skip: int = 0, limit: int = 50
         UserFollow.follower_id == user_id
     ).offset(skip).limit(limit).all()
 
+
+
+# User Connection CRUD Operations
+def create_user_connection(db: Session, connection: "UserConnectionCreate", requester_id: int):
+    """Create a new user connection request"""
+    from ..models.community import UserConnection
+    
+    # Check if connection already exists
+    existing = db.query(UserConnection).filter(
+        or_(
+            and_(UserConnection.requester_id == requester_id, UserConnection.target_id == connection.target_id),
+            and_(UserConnection.requester_id == connection.target_id, UserConnection.target_id == requester_id)
+        )
+    ).first()
+    
+    if existing:
+        return existing
+    
+    db_connection = UserConnection(
+        requester_id=requester_id,
+        target_id=connection.target_id,
+        message=connection.message,
+        status="pending"
+    )
+    db.add(db_connection)
+    db.commit()
+    db.refresh(db_connection)
+    return db_connection
+
+def get_user_connections(db: Session, user_id: int, status: Optional[str] = None, skip: int = 0, limit: int = 100):
+    """Get user connections"""
+    from ..models.community import UserConnection
+    
+    query = db.query(UserConnection).filter(
+        or_(UserConnection.requester_id == user_id, UserConnection.target_id == user_id)
+    )
+    
+    if status:
+        query = query.filter(UserConnection.status == status)
+    
+    return query.offset(skip).limit(limit).all()
+
+def update_connection_status(db: Session, connection_id: int, status: str, user_id: int):
+    """Update connection status"""
+    from ..models.community import UserConnection
+    
+    connection = db.query(UserConnection).filter(UserConnection.id == connection_id).first()
+    if not connection:
+        return None
+    
+    # Only target user can accept/reject, both can block
+    if status in ["accepted", "rejected"] and connection.target_id != user_id:
+        return None
+    
+    connection.status = status
+    connection.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(connection)
+    return connection
+
+# Networking Events CRUD
+def create_networking_event(db: Session, event: "NetworkingEventCreate", organizer_id: int, organization_id: int):
+    """Create a networking event"""
+    from ..models.community import NetworkingEvent
+    
+    db_event = NetworkingEvent(
+        **event.model_dump(),
+        organizer_id=organizer_id,
+        organization_id=organization_id
+    )
+    db.add(db_event)
+    db.commit()
+    db.refresh(db_event)
+    return db_event
+
+def get_networking_events(
+    db: Session, 
+    organization_id: int,
+    event_type: Optional[str] = None,
+    is_virtual: Optional[bool] = None,
+    upcoming_only: bool = True,
+    skip: int = 0, 
+    limit: int = 50
+):
+    """Get networking events"""
+    from ..models.community import NetworkingEvent
+    
+    query = db.query(NetworkingEvent).filter(NetworkingEvent.organization_id == organization_id)
+    
+    if event_type:
+        query = query.filter(NetworkingEvent.event_type == event_type)
+    
+    if is_virtual is not None:
+        query = query.filter(NetworkingEvent.is_virtual == is_virtual)
+    
+    if upcoming_only:
+        query = query.filter(NetworkingEvent.start_time > datetime.utcnow())
+    
+    return query.order_by(NetworkingEvent.start_time).offset(skip).limit(limit).all()
+
+def get_event_by_id(db: Session, event_id: int):
+    """Get event by ID"""
+    from ..models.community import NetworkingEvent
+    return db.query(NetworkingEvent).filter(NetworkingEvent.id == event_id).first()
+
+def register_for_event(db: Session, event_id: int, user_id: int, registration_data: "EventRegistrationCreate"):
+    """Register user for event"""
+    from ..models.community import EventRegistration
+    
+    # Check if already registered
+    existing = db.query(EventRegistration).filter(
+        EventRegistration.event_id == event_id,
+        EventRegistration.user_id == user_id
+    ).first()
+    
+    if existing:
+        return existing
+    
+    db_registration = EventRegistration(
+        event_id=event_id,
+        user_id=user_id,
+        **registration_data.model_dump()
+    )
+    db.add(db_registration)
+    db.commit()
+    db.refresh(db_registration)
+    return db_registration
+
+def get_event_registrations(db: Session, event_id: int):
+    """Get event registrations"""
+    from ..models.community import EventRegistration
+    return db.query(EventRegistration).filter(EventRegistration.event_id == event_id).all()
+
+# User Interests CRUD
+def get_user_interests(db: Session, user_id: int):
+    """Get user interests"""
+    from ..models.community import UserInterest
+    return db.query(UserInterest).filter(UserInterest.user_id == user_id).all()
+
+def create_user_interest(db: Session, user_id: int, interest: "UserInterestCreate"):
+    """Create user interest"""
+    from ..models.community import UserInterest
+    
+    db_interest = UserInterest(
+        user_id=user_id,
+        **interest.model_dump()
+    )
+    db.add(db_interest)
+    db.commit()
+    db.refresh(db_interest)
+    return db_interest
+
+def delete_user_interest(db: Session, interest_id: int, user_id: int):
+    """Delete user interest"""
+    from ..models.community import UserInterest
+    
+    interest = db.query(UserInterest).filter(
+        UserInterest.id == interest_id,
+        UserInterest.user_id == user_id
+    ).first()
+    
+    if interest:
+        db.delete(interest)
+        db.commit()
+        return True
+    return False
+
+# Success Stories CRUD
+def create_success_story(db: Session, story: "SuccessStoryCreate", author_id: int, organization_id: int):
+    """Create a success story"""
+    from ..models.success_stories import SuccessStory
+    
+    db_story = SuccessStory(
+        **story.model_dump(),
+        author_id=author_id,
+        organization_id=organization_id,
+        status="pending"
+    )
+    db.add(db_story)
+    db.commit()
+    db.refresh(db_story)
+    return db_story
+
+def get_success_stories(
+    db: Session,
+    organization_id: int,
+    status: Optional[str] = "approved",
+    category: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 20
+):
+    """Get success stories"""
+    from ..models.success_stories import SuccessStory
+    
+    query = db.query(SuccessStory).filter(SuccessStory.organization_id == organization_id)
+    
+    if status:
+        query = query.filter(SuccessStory.status == status)
+    
+    if category:
+        query = query.filter(SuccessStory.category == category)
+    
+    return query.order_by(desc(SuccessStory.created_at)).offset(skip).limit(limit).all()
+
+def get_story_by_id(db: Session, story_id: int):
+    """Get story by ID"""
+    from ..models.success_stories import SuccessStory
+    return db.query(SuccessStory).filter(SuccessStory.id == story_id).first()
+
+def update_success_story(db: Session, story_id: int, story_update: "SuccessStoryUpdate"):
+    """Update success story"""
+    from ..models.success_stories import SuccessStory
+    
+    story = db.query(SuccessStory).filter(SuccessStory.id == story_id).first()
+    if not story:
+        return None
+    
+    for field, value in story_update.model_dump(exclude_unset=True).items():
+        setattr(story, field, value)
+    
+    story.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(story)
+    return story
+
+def delete_success_story(db: Session, story_id: int):
+    """Delete success story"""
+    from ..models.success_stories import SuccessStory
+    
+    story = db.query(SuccessStory).filter(SuccessStory.id == story_id).first()
+    if story:
+        db.delete(story)
+        db.commit()
+        return True
+    return False
+
+def approve_success_story(db: Session, story_id: int, approved: bool, reviewer_id: int, feedback: Optional[str] = None):
+    """Approve or reject success story"""
+    from ..models.success_stories import SuccessStory
+    
+    story = db.query(SuccessStory).filter(SuccessStory.id == story_id).first()
+    if not story:
+        return None
+    
+    story.status = "approved" if approved else "rejected"
+    story.reviewed_by = reviewer_id
+    story.reviewed_at = datetime.utcnow()
+    if feedback:
+        story.review_feedback = feedback
+    
+    db.commit()
+    db.refresh(story)
+    return story
+
+def get_featured_stories(db: Session, organization_id: int, skip: int = 0, limit: int = 10):
+    """Get featured success stories"""
+    from ..models.success_stories import SuccessStory
+    
+    return db.query(SuccessStory).filter(
+        SuccessStory.organization_id == organization_id,
+        SuccessStory.status == "approved",
+        SuccessStory.is_featured == True
+    ).order_by(desc(SuccessStory.created_at)).offset(skip).limit(limit).all()
+
+def like_success_story(db: Session, story_id: int, user_id: int):
+    """Like or unlike a success story"""
+    from ..models.success_stories import StoryLike
+    
+    existing_like = db.query(StoryLike).filter(
+        StoryLike.story_id == story_id,
+        StoryLike.user_id == user_id
+    ).first()
+    
+    if existing_like:
+        db.delete(existing_like)
+        db.commit()
+        return {"liked": False, "message": "Like removed"}
+    else:
+        new_like = StoryLike(story_id=story_id, user_id=user_id)
+        db.add(new_like)
+        db.commit()
+        return {"liked": True, "message": "Story liked"}
+
+def create_story_comment(db: Session, story_id: int, comment: "StoryCommentCreate", author_id: int):
+    """Create story comment"""
+    from ..models.success_stories import StoryComment
+    
+    db_comment = StoryComment(
+        story_id=story_id,
+        author_id=author_id,
+        **comment.model_dump()
+    )
+    db.add(db_comment)
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+def get_story_comments(db: Session, story_id: int, skip: int = 0, limit: int = 50):
+    """Get story comments"""
+    from ..models.success_stories import StoryComment
+    
+    return db.query(StoryComment).filter(
+        StoryComment.story_id == story_id
+    ).order_by(StoryComment.created_at).offset(skip).limit(limit).all()
+
+
+
+# ===== NETWORKING CRUD FUNCTIONS =====
+
+def create_user_connection(db: Session, connection: "UserConnectionCreate", requester_id: int):
+    """Create a user connection request"""
+    from ..models.community import UserConnection
+    
+    # Check if connection already exists
+    existing = db.query(UserConnection).filter(
+        or_(
+            and_(UserConnection.requester_id == requester_id, UserConnection.requested_id == connection.requested_id),
+            and_(UserConnection.requester_id == connection.requested_id, UserConnection.requested_id == requester_id)
+        )
+    ).first()
+    
+    if existing:
+        raise ValueError("Connection already exists")
+    
+    db_connection = UserConnection(
+        requester_id=requester_id,
+        requested_id=connection.requested_id,
+        message=connection.message,
+        status="pending"
+    )
+    db.add(db_connection)
+    db.commit()
+    db.refresh(db_connection)
+    return db_connection
+
+def get_user_connections(db: Session, user_id: int, status: Optional[str] = None, skip: int = 0, limit: int = 100):
+    """Get user connections"""
+    from ..models.community import UserConnection
+    
+    query = db.query(UserConnection).filter(
+        or_(UserConnection.requester_id == user_id, UserConnection.requested_id == user_id)
+    )
+    
+    if status:
+        query = query.filter(UserConnection.status == status)
+    
+    return query.order_by(desc(UserConnection.created_at)).offset(skip).limit(limit).all()
+
+def update_connection_status(db: Session, connection_id: int, status: str, user_id: int):
+    """Update connection status (accept/reject)"""
+    from ..models.community import UserConnection
+    
+    connection = db.query(UserConnection).filter(UserConnection.id == connection_id).first()
+    if not connection:
+        raise ValueError("Connection not found")
+    
+    # Only the requested user can accept/reject
+    if connection.requested_id != user_id:
+        raise ValueError("Not authorized to update this connection")
+    
+    connection.status = status
+    connection.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(connection)
+    return connection
+
+def create_networking_event(db: Session, event: "NetworkingEventCreate", organizer_id: int):
+    """Create a networking event"""
+    from ..models.community import NetworkingEvent
+    
+    db_event = NetworkingEvent(
+        **event.model_dump(),
+        organizer_id=organizer_id
+    )
+    db.add(db_event)
+    db.commit()
+    db.refresh(db_event)
+    return db_event
+
+def get_networking_events(db: Session, organization_id: Optional[int] = None, skip: int = 0, limit: int = 100):
+    """Get networking events"""
+    from ..models.community import NetworkingEvent
+    
+    query = db.query(NetworkingEvent).filter(NetworkingEvent.is_active == True)
+    
+    if organization_id:
+        query = query.filter(NetworkingEvent.organization_id == organization_id)
+    
+    return query.order_by(NetworkingEvent.event_date).offset(skip).limit(limit).all()
+
+def get_event_by_id(db: Session, event_id: int):
+    """Get event by ID"""
+    from ..models.community import NetworkingEvent
+    
+    return db.query(NetworkingEvent).filter(NetworkingEvent.id == event_id).first()
+
+def register_for_event(db: Session, registration: "EventRegistrationCreate", user_id: int):
+    """Register for an event"""
+    from ..models.community import EventRegistration
+    
+    # Check if already registered
+    existing = db.query(EventRegistration).filter(
+        EventRegistration.event_id == registration.event_id,
+        EventRegistration.user_id == user_id
+    ).first()
+    
+    if existing:
+        raise ValueError("Already registered for this event")
+    
+    db_registration = EventRegistration(
+        event_id=registration.event_id,
+        user_id=user_id,
+        registration_notes=registration.registration_notes
+    )
+    db.add(db_registration)
+    db.commit()
+    db.refresh(db_registration)
+    return db_registration
+
+def get_event_registrations(db: Session, event_id: int, skip: int = 0, limit: int = 100):
+    """Get event registrations"""
+    from ..models.community import EventRegistration
+    
+    return db.query(EventRegistration).filter(
+        EventRegistration.event_id == event_id
+    ).order_by(EventRegistration.created_at).offset(skip).limit(limit).all()
+
+def get_user_interests(db: Session, user_id: int):
+    """Get user interests"""
+    from ..models.community import UserInterest
+    
+    return db.query(UserInterest).filter(UserInterest.user_id == user_id).all()
+
+def create_user_interest(db: Session, interest: "UserInterestCreate", user_id: int):
+    """Create user interest"""
+    from ..models.community import UserInterest
+    
+    # Check if interest already exists
+    existing = db.query(UserInterest).filter(
+        UserInterest.user_id == user_id,
+        UserInterest.interest_name == interest.interest_name
+    ).first()
+    
+    if existing:
+        raise ValueError("Interest already exists")
+    
+    db_interest = UserInterest(
+        user_id=user_id,
+        **interest.model_dump()
+    )
+    db.add(db_interest)
+    db.commit()
+    db.refresh(db_interest)
+    return db_interest
+
+def delete_user_interest(db: Session, interest_id: int, user_id: int):
+    """Delete user interest"""
+    from ..models.community import UserInterest
+    
+    interest = db.query(UserInterest).filter(
+        UserInterest.id == interest_id,
+        UserInterest.user_id == user_id
+    ).first()
+    
+    if not interest:
+        raise ValueError("Interest not found")
+    
+    db.delete(interest)
+    db.commit()
+    return {"message": "Interest deleted successfully"}
+

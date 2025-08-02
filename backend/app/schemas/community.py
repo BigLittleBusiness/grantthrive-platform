@@ -347,3 +347,220 @@ class CommunityStats(BaseModel):
     total_users: int
     active_users: int
 
+
+
+# ===== NETWORKING SCHEMAS =====
+
+class ConnectionStatusEnum(str, Enum):
+    """Connection status enumeration"""
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    BLOCKED = "blocked"
+
+
+# User Connection Schemas
+class UserConnectionBase(BaseModel):
+    message: Optional[str] = Field(None, max_length=500)
+
+
+class UserConnectionCreate(UserConnectionBase):
+    requested_id: int
+
+
+class UserConnectionUpdate(BaseModel):
+    status: ConnectionStatusEnum
+
+
+class UserConnectionResponse(UserConnectionBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    requester_id: int
+    requested_id: int
+    status: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+# Networking Event Schemas
+class NetworkingEventBase(BaseModel):
+    title: str = Field(..., max_length=200)
+    description: Optional[str] = None
+    event_type: str = Field(..., max_length=50)  # workshop, webinar, meetup, conference
+    event_date: datetime
+    duration_minutes: Optional[int] = Field(None, ge=15, le=480)
+    location: Optional[str] = Field(None, max_length=200)
+    is_virtual: bool = Field(default=False)
+    meeting_link: Optional[str] = Field(None, max_length=500)
+    max_participants: Optional[int] = Field(None, ge=1)
+    registration_deadline: Optional[datetime] = None
+    tags: Optional[List[str]] = Field(default_factory=list)
+    organization_id: Optional[int] = None
+    is_active: bool = Field(default=True)
+
+
+class NetworkingEventCreate(NetworkingEventBase):
+    pass
+
+
+class NetworkingEventUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = None
+    event_type: Optional[str] = Field(None, max_length=50)
+    event_date: Optional[datetime] = None
+    duration_minutes: Optional[int] = Field(None, ge=15, le=480)
+    location: Optional[str] = Field(None, max_length=200)
+    is_virtual: Optional[bool] = None
+    meeting_link: Optional[str] = Field(None, max_length=500)
+    max_participants: Optional[int] = Field(None, ge=1)
+    registration_deadline: Optional[datetime] = None
+    tags: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class NetworkingEventResponse(NetworkingEventBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    organizer_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    registration_count: Optional[int] = 0
+
+
+# Event Registration Schemas
+class EventRegistrationBase(BaseModel):
+    registration_notes: Optional[str] = Field(None, max_length=500)
+
+
+class EventRegistrationCreate(EventRegistrationBase):
+    event_id: int
+
+
+class EventRegistrationResponse(EventRegistrationBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    event_id: int
+    user_id: int
+    created_at: datetime
+
+
+# User Interest Schemas
+class UserInterestBase(BaseModel):
+    interest_name: str = Field(..., max_length=100)
+    category: Optional[str] = Field(None, max_length=50)
+
+
+class UserInterestCreate(UserInterestBase):
+    pass
+
+
+class UserInterestResponse(UserInterestBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    user_id: int
+    created_at: datetime
+
+
+
+# ===== SUCCESS STORY SCHEMAS =====
+
+class StoryStatusEnum(str, Enum):
+    """Success story status enumeration"""
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    FEATURED = "featured"
+
+
+# Success Story Schemas
+class SuccessStoryBase(BaseModel):
+    title: str = Field(..., max_length=200)
+    summary: str = Field(..., max_length=500)
+    full_story: str
+    project_name: Optional[str] = Field(None, max_length=200)
+    grant_amount: Optional[float] = Field(None, ge=0)
+    project_duration: Optional[str] = Field(None, max_length=100)
+    impact_metrics: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    outcomes_achieved: Optional[str] = None
+    lessons_learned: Optional[str] = None
+    tags: Optional[List[str]] = Field(default_factory=list)
+    location: Optional[str] = Field(None, max_length=200)
+    organization_name: Optional[str] = Field(None, max_length=200)
+    contact_email: Optional[str] = Field(None, max_length=255)
+    media_urls: Optional[List[str]] = Field(default_factory=list)
+    is_featured: bool = Field(default=False)
+    allow_contact: bool = Field(default=True)
+    organization_id: Optional[int] = None
+
+
+class SuccessStoryCreate(SuccessStoryBase):
+    pass
+
+
+class SuccessStoryUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=200)
+    summary: Optional[str] = Field(None, max_length=500)
+    full_story: Optional[str] = None
+    project_name: Optional[str] = Field(None, max_length=200)
+    grant_amount: Optional[float] = Field(None, ge=0)
+    project_duration: Optional[str] = Field(None, max_length=100)
+    impact_metrics: Optional[Dict[str, Any]] = None
+    outcomes_achieved: Optional[str] = None
+    lessons_learned: Optional[str] = None
+    tags: Optional[List[str]] = None
+    location: Optional[str] = Field(None, max_length=200)
+    organization_name: Optional[str] = Field(None, max_length=200)
+    contact_email: Optional[str] = Field(None, max_length=255)
+    media_urls: Optional[List[str]] = None
+    is_featured: Optional[bool] = None
+    allow_contact: Optional[bool] = None
+    status: Optional[StoryStatusEnum] = None
+
+
+class SuccessStoryResponse(SuccessStoryBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    author_id: int
+    status: str
+    view_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+# Story Comment Schemas
+class StoryCommentBase(BaseModel):
+    content: str = Field(..., max_length=1000)
+    parent_id: Optional[int] = None
+
+
+class StoryCommentCreate(StoryCommentBase):
+    pass
+
+
+class StoryCommentResponse(StoryCommentBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    story_id: int
+    author_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+# Story Like Schema
+class StoryLikeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    story_id: int
+    user_id: int
+    created_at: datetime
+

@@ -342,7 +342,7 @@ class ActivityFeed(Base):
     comment_count = Column(Integer, default=0)
     
     # Metadata
-    metadata = Column(JSONType)  # Additional activity-specific data
+    activity_metadata = Column(JSONType)  # Additional activity-specific data
     
     # Audit
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
