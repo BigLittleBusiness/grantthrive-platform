@@ -235,7 +235,7 @@ def create_sample_applications(db: Session, grants, users):
                 "project_title": f"Project by {applicant.organization_name}",
                 "project_description": f"Innovative project proposal from {applicant.organization_name} addressing the grant objectives.",
                 "requested_amount": grant.total_funding * Decimal("0.8"),  # Request 80% of available
-                "status": ApplicationStatus.SUBMITTED if i == 0 else ApplicationStatus.UNDER_REVIEW,
+                "status": ApplicationStatus.SUBMITTED.value if i == 0 else ApplicationStatus.UNDER_REVIEW.value,
                 "submitted_at": datetime.utcnow() - timedelta(days=random.randint(1, 10))
             })
     
