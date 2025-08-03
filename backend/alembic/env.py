@@ -14,6 +14,24 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.db.database import Base
 from app.models.user import User
 from app.models.grant import Grant, Application
+# Import all community models for Alembic detection
+from app.models.community import (
+    ForumCategory, ForumTopic, ForumPost, ForumTopicLike, ForumPostLike,
+    ResourceCategory, Resource, ResourceLike, ResourceRating, UserFollow
+)
+from app.models.marketplace import (
+    ProfessionalProfile, ProfessionalService, ServiceBooking, BookingMessage,
+    ProfessionalReview, ProfessionalDocument
+)
+from app.models.success_stories import (
+    SuccessStory, StoryLike, StoryComment, CommentLike,
+    UserConnection, NetworkingEvent, EventRegistration, UserInterest
+)
+from app.models.gamification import (
+    UserLevel, Achievement, UserAchievement, PointTransaction, Leaderboard,
+    Notification, NotificationPreference, ActivityFeed, ActivityLike, ActivityComment
+)
+from app.models.feature_toggles import FeatureToggle, FeatureConfiguration
 from app.core.config import settings
 
 # this is the Alembic Config object, which provides

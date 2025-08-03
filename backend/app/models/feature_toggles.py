@@ -41,7 +41,7 @@ class FeatureToggle(Base):
     __tablename__ = "feature_toggles"
 
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    organization_id = Column(Integer, nullable=False, index=True)
     
     # Feature Details
     feature_name = Column(String(100), nullable=False, index=True)
