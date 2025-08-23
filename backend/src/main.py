@@ -1,0 +1,68 @@
+import os
+import sys
+# DON'T CHANGE THIS !!!
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from flask import Flask, send_from_directory, jsonify
+from flask_cors import CORS
+from src.models.user import db
+from src.routes.user import user_bp
+from src.routes.grants import grants_bp
+from src.routes.applications import applications_bp
+from src.routes.auth import auth_bp
+from src.routes.analytics import analytics_bp
+
+app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+
+# Configuration
+app.config['SECRET_KEY'] = 'grantthrive-secret-key-change-in-production'
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Enable CORS for all routes
+CORS(app, origins="*")
+
+# Register blueprints
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+app.register_blueprint(user_bp, url_prefix='/api/users')
+app.register_blueprint(grants_bp, url_prefix='/api/grants')
+app.register_blueprint(applications_bp, url_prefix='/api/applications')
+app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
+
+# Initialize database
+db.init_app(app)
+with app.app_context():
+    db.create_all()
+
+# Health check endpoint
+@app.route('/api/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'service': 'GrantThrive API',
+        'version': '1.0.0'
+    })
+
+# Serve React frontend
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    static_folder_path = app.static_folder
+    if static_folder_path is None:
+        return "Static folder not configured", 404
+
+    if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
+        return send_from_directory(static_folder_path, path)
+    else:
+        index_path = os.path.join(static_folder_path, 'index.html')
+        if os.path.exists(index_path):
+            return send_from_directory(static_folder_path, 'index.html')
+        else:
+            return jsonify({
+                'message': 'GrantThrive API is running',
+                'frontend': 'Not deployed - use /api endpoints for API access'
+            }), 200
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
