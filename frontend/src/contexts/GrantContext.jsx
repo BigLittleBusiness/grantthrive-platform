@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { useAuth } from './AuthContext'
 
-const GrantContext = createContext({})
+export const GrantContext = createContext({})
 
 export const useGrants = () => {
   const context = useContext(GrantContext)

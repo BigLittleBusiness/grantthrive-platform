@@ -30,11 +30,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('grantthrive_token')
         localStorage.removeItem('grantthrive_user')
       }
-    }
-    setLoading(false)
-  }, [])
-
-  // Demo login function
+      // Demo login function
   const login = async (email, password) => {
     setLoading(true)
     
@@ -84,9 +80,7 @@ export const AuthProvider = ({ children }) => {
       setLoading(false)
       return { success: false, message: 'Invalid email or password' }
     }
-  }
-
-  const register = async (userData) => {
+  } register = async (userData) => {
     try {
       setLoading(true)
       
