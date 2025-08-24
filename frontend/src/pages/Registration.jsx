@@ -87,9 +87,9 @@ const Registration = () => {
       color: 'green',
       requirements: [
         'Official government email address required (.gov.au or .govt.nz)',
-        'Employee verification from supervisor',
-        'Position and department confirmation',
-        'Admin approval required (1-2 business days)'
+        'Position and department information',
+        'Admin verification (1-2 business days)',
+        'Documents may be requested if needed for verification'
       ],
       verificationLevel: 'High Security'
     }
@@ -187,7 +187,7 @@ const Registration = () => {
           <div>
             <h4 className="font-medium text-blue-900 mb-1">Security Notice</h4>
             <p className="text-sm text-blue-800">
-              Government staff accounts require verification through official channels. 
+              Government staff accounts require verification by your organization's GrantThrive administrator. 
               Attempting to register with false credentials is prohibited and may result in account suspension.
               Valid government email domains: .gov.au (Australia) and .govt.nz (New Zealand).
             </p>
@@ -356,45 +356,15 @@ const Registration = () => {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Supervisor Name *
-            </label>
-            <Input
-              value={formData.supervisorName}
-              onChange={(e) => handleInputChange('supervisorName', e.target.value)}
-              placeholder="Full name of your direct supervisor"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Supervisor Email *
-            </label>
-            <Input
-              type="email"
-              value={formData.supervisorEmail}
-              onChange={(e) => handleInputChange('supervisorEmail', e.target.value)}
-              placeholder="supervisor@council.gov.au or supervisor@council.govt.nz"
-              required
-            />
-            {formData.supervisorEmail && !validateGovernmentEmail(formData.supervisorEmail) && (
-              <div className="flex items-center gap-2 mt-2 text-red-600 text-sm">
-                <AlertCircle className="w-4 h-4" />
-                Supervisor email must also be a government email address
-              </div>
-            )}
-          </div>
-
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+              <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
               <div>
-                <h4 className="font-medium text-yellow-900 mb-1">Verification Process</h4>
-                <p className="text-sm text-yellow-800">
-                  We will contact your supervisor to verify your employment and role. 
-                  This typically takes 1-2 business days.
+                <h4 className="font-medium text-blue-900 mb-1">Verification Process</h4>
+                <p className="text-sm text-blue-800">
+                  Your application will be reviewed by the GrantThrive administrator at your organization. 
+                  They may contact you directly if additional verification is needed. 
+                  Most applications are processed within 1-2 business days.
                 </p>
               </div>
             </div>

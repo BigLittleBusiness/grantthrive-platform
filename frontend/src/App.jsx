@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Login from './pages/Login.jsx';
 import Registration from './pages/Registration.jsx';
+import AdminApprovalDashboard from './pages/AdminApprovalDashboard.jsx';
 import CouncilAdminDashboard from './dashboards/CouncilAdminDashboard.jsx';
 import CouncilStaffDashboard from './dashboards/CouncilStaffDashboard.jsx';
 import CommunityMemberDashboard from './dashboards/CommunityMemberDashboard.jsx';
@@ -58,6 +59,8 @@ function App() {
   switch (currentPage) {
     case 'dashboard':
       return renderDashboard();
+    case 'admin-approvals':
+      return <AdminApprovalDashboard user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'grants':
       return <GrantsListing user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'grant-details':
