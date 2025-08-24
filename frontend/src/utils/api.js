@@ -95,14 +95,26 @@ class ApiClient {
   // Authentication endpoints
   async login(email, password) {
     const response = await this.post('/auth/login', { email, password });
-    if (response.success && response.data.token) {
-      this.setToken(response.data.token);
+    if (response.token) {
+      this.setToken(response.token);
     }
     return response;
   }
 
   async register(userData) {
-    return this.post('/auth/register', userData);
+    const response = await this.post('/auth/register', userData);
+    if (response.token) {
+      this.setToken(response.token);
+    }
+    return response;
+  }
+
+  async demoLogin(demoType) {
+    const response = await this.post('/auth/demo-login', { demo_type: demoType });
+    if (response.token) {
+      this.setToken(response.token);
+    }
+    return response;
   }
 
   async logout() {
@@ -116,12 +128,14 @@ class ApiClient {
   }
 
   async verifyToken() {
-    if (!this.token) return { success: false };
-    return this.post('/auth/verify', { token: this.token });
-  }
-
-  async refreshToken() {
-    return this.post('/auth/refresh');
+    if (!this.token) return null;
+    try {
+      const response = await this.post('/auth/verify-token', { token: this.token });
+      return response.user;
+    } catch (error) {
+      this.setToken(null);
+      return null;
+    }
   }
 
   // User endpoints
@@ -245,9 +259,9 @@ export default apiClient;
 export const {
   login,
   register,
+  demoLogin,
   logout,
   verifyToken,
-  refreshToken,
   getCurrentUser,
   updateProfile,
   changePassword,
@@ -262,6 +276,8 @@ export const {
   getApplication,
   createApplication,
   updateApplication,
+  submitApplication,
+  reviewApplication,
   updateApplicationStatus,
   deleteApplication,
   getApplicationStats,
@@ -272,6 +288,21 @@ export const {
   getPerformanceMetrics,
   getInsights,
   exportAnalyticsData,
+  getUsers,
+  getPendingUsers,
+  approveUser,
+  rejectUser,
+  suspendUser,
+  reactivateUser,
+  updateUser,
+  getUserDetails,
+  getAdminStats,
+  uploadFile,
+  getFileInfo,
+  deleteFile,
+  getUserFiles,
+  getUploadConfig,
+  getFileDownloadUrl,
   healthCheck,
   getApiStatus
 } = apiClient;

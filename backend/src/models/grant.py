@@ -1,5 +1,28 @@
+from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-from src.models.user import db
+import enum
+
+db = SQLAlchemy()
+
+class GrantStatus(enum.Enum):
+    DRAFT = "draft"
+    OPEN = "open"
+    CLOSING_SOON = "closing_soon"
+    CLOSED = "closed"
+    UNDER_REVIEW = "under_review"
+    COMPLETED = "completed"
+
+class GrantCategory(enum.Enum):
+    COMMUNITY_DEVELOPMENT = "community_development"
+    ARTS_CULTURE = "arts_culture"
+    ENVIRONMENT = "environment"
+    EDUCATION = "education"
+    HEALTH_WELLBEING = "health_wellbeing"
+    INFRASTRUCTURE = "infrastructure"
+    ECONOMIC_DEVELOPMENT = "economic_development"
+    YOUTH_PROGRAMS = "youth_programs"
+    SENIORS_PROGRAMS = "seniors_programs"
+    DISABILITY_SUPPORT = "disability_support"
 
 class Grant(db.Model):
     __tablename__ = 'grants'
@@ -7,59 +30,70 @@ class Grant(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=False)
-    category = db.Column(db.String(100), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(50), nullable=False, default='draft')  # draft, active, closed, cancelled
+    short_description = db.Column(db.String(500), nullable=True)
+    
+    # Financial details
+    funding_amount = db.Column(db.Float, nullable=False)
+    min_funding = db.Column(db.Float, nullable=True)
+    max_funding = db.Column(db.Float, nullable=True)
     
     # Dates
+    open_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    close_date = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-    opens_at = db.Column(db.DateTime, nullable=True)
-    closes_at = db.Column(db.DateTime, nullable=True)
     
-    # Requirements and criteria
+    # Status and categorization
+    status = db.Column(db.Enum(GrantStatus), nullable=False, default=GrantStatus.DRAFT)
+    category = db.Column(db.Enum(GrantCategory), nullable=False)
+    
+    # Eligibility and requirements
     eligibility_criteria = db.Column(db.Text, nullable=True)
-    required_documents = db.Column(db.Text, nullable=True)  # JSON string
-    assessment_criteria = db.Column(db.Text, nullable=True)
+    required_documents = db.Column(db.Text, nullable=True)  # JSON string of document types
     
-    # Council information
-    council_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    contact_person = db.Column(db.String(100), nullable=True)
-    contact_email = db.Column(db.String(120), nullable=True)
+    # Organization details
+    organization_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    contact_email = db.Column(db.String(120), nullable=False)
     contact_phone = db.Column(db.String(20), nullable=True)
     
-    # Settings
-    max_applications = db.Column(db.Integer, nullable=True)
-    auto_approve = db.Column(db.Boolean, default=False)
-    public_voting = db.Column(db.Boolean, default=False)
+    # Additional fields
+    tags = db.Column(db.Text, nullable=True)  # JSON string of tags
+    location_restrictions = db.Column(db.String(200), nullable=True)
+    website_url = db.Column(db.String(200), nullable=True)
+    
+    # Statistics
+    view_count = db.Column(db.Integer, default=0)
+    application_count = db.Column(db.Integer, default=0)
     
     # Relationships
-    council = db.relationship('User', backref=db.backref('grants', lazy=True))
     applications = db.relationship('Application', backref='grant', lazy=True, cascade='all, delete-orphan')
+    created_by = db.relationship('User', backref='created_grants', lazy=True)
     
     def to_dict(self):
         return {
             'id': self.id,
             'title': self.title,
             'description': self.description,
-            'category': self.category,
-            'amount': self.amount,
-            'status': self.status,
+            'short_description': self.short_description,
+            'funding_amount': self.funding_amount,
+            'min_funding': self.min_funding,
+            'max_funding': self.max_funding,
+            'open_date': self.open_date.isoformat() if self.open_date else None,
+            'close_date': self.close_date.isoformat() if self.close_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'opens_at': self.opens_at.isoformat() if self.opens_at else None,
-            'closes_at': self.closes_at.isoformat() if self.closes_at else None,
+            'status': self.status.value if self.status else None,
+            'category': self.category.value if self.category else None,
             'eligibility_criteria': self.eligibility_criteria,
             'required_documents': self.required_documents,
-            'assessment_criteria': self.assessment_criteria,
-            'council_id': self.council_id,
-            'contact_person': self.contact_person,
+            'organization_id': self.organization_id,
             'contact_email': self.contact_email,
             'contact_phone': self.contact_phone,
-            'max_applications': self.max_applications,
-            'auto_approve': self.auto_approve,
-            'public_voting': self.public_voting,
-            'application_count': len(self.applications) if self.applications else 0
+            'tags': self.tags,
+            'location_restrictions': self.location_restrictions,
+            'website_url': self.website_url,
+            'view_count': self.view_count,
+            'application_count': self.application_count
         }
     
     def __repr__(self):

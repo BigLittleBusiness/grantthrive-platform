@@ -1,157 +1,186 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import apiClient from '../utils/api';
 
-export const AuthContext = createContext({})
+const AuthContext = createContext();
 
 export const useAuth = () => {
-  const context = useContext(AuthContext)
+  const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
+    throw new Error('useAuth must be used within an AuthProvider');
   }
-  return context
-}
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Initialize auth state from localStorage
+  // Check for existing authentication on mount
   useEffect(() => {
-    const token = localStorage.getItem('grantthrive_token')
-    const userData = localStorage.getItem('grantthrive_user')
-    
-    if (token && userData) {
-      try {
-        const parsedUser = JSON.parse(userData)
-        setUser(parsedUser)
-        setIsAuthenticated(true)
-      } catch (error) {
-        console.error('Error parsing user data:', error)
-        localStorage.removeItem('grantthrive_token')
-        localStorage.removeItem('grantthrive_user')
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      setLoading(true);
+      const userData = await apiClient.verifyToken();
+      if (userData) {
+        setUser(userData);
       }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      // Token is invalid, clear it
+      apiClient.setToken(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false)
-  }, [])
+  };
 
-  // Demo login function
   const login = async (email, password) => {
-    setLoading(true)
-    
-    // Demo users for testing
-    const demoUsers = {
-      'admin@council.gov.au': {
-        id: 1,
-        name: 'Sarah Johnson',
-        email: 'admin@council.gov.au',
-        role: 'council_admin',
-        organization: 'Melbourne City Council',
-        avatar: null,
-      },
-      'member@community.org.au': {
-        id: 2,
-        name: 'Michael Chen',
-        email: 'member@community.org.au',
-        role: 'community_member',
-        organization: 'Community Arts Collective',
-        avatar: null,
-      },
-      'consultant@professional.com.au': {
-        id: 3,
-        name: 'Emma Thompson',
-        email: 'consultant@professional.com.au',
-        role: 'professional_consultant',
-        organization: 'Grant Success Partners',
-        avatar: null,
-      },
-    }
-
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    if (demoUsers[email] && password === 'demo123') {
-      const user = demoUsers[email]
-      setUser(user)
-      setIsAuthenticated(true)
+    try {
+      setError(null);
+      setLoading(true);
       
-      // Store in localStorage
-      localStorage.setItem('grantthrive_token', 'demo-token-' + user.id)
-      localStorage.setItem('grantthrive_user', JSON.stringify(user))
+      const response = await apiClient.login(email, password);
       
-      setLoading(false)
-      return { success: true, user }
-    } else {
-      setLoading(false)
-      return { success: false, message: 'Invalid email or password' }
+      if (response.user && response.token) {
+        setUser(response.user);
+        return { success: true, user: response.user };
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error) {
+      const errorMessage = error.message || 'Login failed';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   const register = async (userData) => {
     try {
-      setLoading(true)
+      setError(null);
+      setLoading(true);
       
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
-      })
-
-      if (!response.ok) {
-        throw new Error('Registration failed')
+      const response = await apiClient.register(userData);
+      
+      if (response.user) {
+        // If user is immediately active, set them as logged in
+        if (response.token) {
+          setUser(response.user);
+        }
+        return { 
+          success: true, 
+          user: response.user,
+          requiresApproval: response.requires_approval || false
+        };
+      } else {
+        throw new Error('Registration failed');
       }
-
-      const data = await response.json()
-      
-      // Auto-login after registration
-      localStorage.setItem('grantthrive_token', data.token)
-      localStorage.setItem('grantthrive_user', JSON.stringify(data.user))
-      
-      setUser(data.user)
-      setIsAuthenticated(true)
-      
-      return { success: true, user: data.user }
     } catch (error) {
-      console.error('Registration error:', error)
-      return { success: false, error: error.message }
+      const errorMessage = error.message || 'Registration failed';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const logout = () => {
-    localStorage.removeItem('grantthrive_token')
-    localStorage.removeItem('grantthrive_user')
-    setUser(null)
-    setIsAuthenticated(false)
-  }
+  const demoLogin = async (demoType) => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      const response = await apiClient.demoLogin(demoType);
+      
+      if (response.user && response.token) {
+        setUser(response.user);
+        return { success: true, user: response.user };
+      } else {
+        throw new Error('Demo login failed');
+      }
+    } catch (error) {
+      const errorMessage = error.message || 'Demo login failed';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await apiClient.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+      setError(null);
+    }
+  };
 
   const updateUser = (updatedUser) => {
-    setUser(updatedUser)
-    localStorage.setItem('grantthrive_user', JSON.stringify(updatedUser))
-  }
+    setUser(updatedUser);
+  };
+
+  const clearError = () => {
+    setError(null);
+  };
+
+  // Helper functions for role checking
+  const isAdmin = () => {
+    return user && (user.role === 'council_admin' || user.role === 'system_admin');
+  };
+
+  const isCouncilStaff = () => {
+    return user && (user.role === 'council_staff' || user.role === 'council_admin');
+  };
+
+  const isCommunityMember = () => {
+    return user && user.role === 'community_member';
+  };
+
+  const isProfessionalConsultant = () => {
+    return user && user.role === 'professional_consultant';
+  };
+
+  const hasRole = (role) => {
+    return user && user.role === role;
+  };
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('grantthrive_token')
-    return token ? { Authorization: `Bearer ${token}` } : {}
-  }
+    const token = localStorage.getItem('authToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   const value = {
     user,
     loading,
-    isAuthenticated,
+    error,
     login,
     register,
+    demoLogin,
     logout,
     updateUser,
+    clearError,
+    checkAuthStatus,
     getAuthHeaders,
-  }
+    isAuthenticated: !!user,
+    isAdmin,
+    isCouncilStaff,
+    isCommunityMember,
+    isProfessionalConsultant,
+    hasRole
+  };
 
   return (
     <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
-  )
-}
+  );
+};
+
+export { AuthContext };
 

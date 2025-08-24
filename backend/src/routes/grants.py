@@ -1,140 +1,177 @@
-from datetime import datetime
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from src.models.user import db, User
-from src.models.grant import Grant
+from src.models.grant import Grant, GrantStatus, GrantCategory
 from src.routes.auth import verify_token
+from datetime import datetime
+import json
 
 grants_bp = Blueprint('grants', __name__)
 
-def get_current_user():
-    """Get current user from JWT token"""
-    auth_header = request.headers.get('Authorization')
-    
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return None
-    
-    token = auth_header.split(' ')[1]
-    user_id = verify_token(token)
-    
-    if not user_id:
-        return None
-    
-    return User.query.get(user_id)
-
-@grants_bp.route('', methods=['GET'])
-def get_grants():
-    """Get all grants with optional filtering"""
-    try:
-        user = get_current_user()
-        if not user:
+def require_auth(f):
+    """Decorator to require authentication"""
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
             return jsonify({'error': 'Authentication required'}), 401
         
-        # Query parameters for filtering
-        status = request.args.get('status')
+        token = auth_header.split(' ')[1]
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 401
+        
+        request.current_user = user
+        return f(*args, **kwargs)
+    
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
+@grants_bp.route('/grants', methods=['GET'])
+def get_grants():
+    """Get all grants with filtering and pagination"""
+    try:
+        # Query parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 10, type=int), 100)
         category = request.args.get('category')
+        status = request.args.get('status')
         search = request.args.get('search')
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
+        min_funding = request.args.get('min_funding', type=float)
+        max_funding = request.args.get('max_funding', type=float)
         
         # Build query
         query = Grant.query
         
-        # Filter by council for council users
-        if user.role in ['council_admin', 'council_staff']:
-            query = query.filter_by(council_id=user.id)
-        
         # Apply filters
-        if status:
-            query = query.filter_by(status=status)
-        
         if category:
-            query = query.filter_by(category=category)
+            try:
+                category_enum = GrantCategory(category)
+                query = query.filter(Grant.category == category_enum)
+            except ValueError:
+                pass
+        
+        if status:
+            try:
+                status_enum = GrantStatus(status)
+                query = query.filter(Grant.status == status_enum)
+            except ValueError:
+                pass
         
         if search:
-            query = query.filter(Grant.title.contains(search) | Grant.description.contains(search))
+            query = query.filter(
+                Grant.title.contains(search) |
+                Grant.description.contains(search) |
+                Grant.short_description.contains(search)
+            )
+        
+        if min_funding:
+            query = query.filter(Grant.funding_amount >= min_funding)
+        
+        if max_funding:
+            query = query.filter(Grant.funding_amount <= max_funding)
         
         # Order by creation date (newest first)
         query = query.order_by(Grant.created_at.desc())
         
         # Paginate
-        grants = query.paginate(page=page, per_page=per_page, error_out=False)
+        grants = query.paginate(
+            page=page, 
+            per_page=per_page, 
+            error_out=False
+        )
         
         return jsonify({
             'grants': [grant.to_dict() for grant in grants.items],
-            'total': grants.total,
-            'pages': grants.pages,
-            'current_page': page,
-            'per_page': per_page
+            'pagination': {
+                'page': grants.page,
+                'pages': grants.pages,
+                'per_page': grants.per_page,
+                'total': grants.total,
+                'has_next': grants.has_next,
+                'has_prev': grants.has_prev
+            }
         }), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@grants_bp.route('/<int:grant_id>', methods=['GET'])
+@grants_bp.route('/grants/<int:grant_id>', methods=['GET'])
 def get_grant(grant_id):
-    """Get a specific grant"""
+    """Get specific grant by ID"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
+        grant = Grant.query.get_or_404(grant_id)
         
-        grant = Grant.query.get(grant_id)
-        if not grant:
-            return jsonify({'error': 'Grant not found'}), 404
+        # Increment view count
+        grant.view_count += 1
+        db.session.commit()
         
-        # Check permissions
-        if user.role in ['council_admin', 'council_staff'] and grant.council_id != user.id:
-            return jsonify({'error': 'Access denied'}), 403
+        grant_data = grant.to_dict()
         
-        return jsonify({'grant': grant.to_dict()}), 200
+        # Add creator information
+        if grant.created_by:
+            grant_data['created_by'] = {
+                'name': grant.created_by.full_name,
+                'organization': grant.created_by.organization_name
+            }
+        
+        return jsonify(grant_data), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@grants_bp.route('', methods=['POST'])
+@grants_bp.route('/grants', methods=['POST'])
+@require_auth
 def create_grant():
-    """Create a new grant"""
+    """Create new grant (admin only)"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        if user.role not in ['council_admin', 'council_staff']:
-            return jsonify({'error': 'Only council users can create grants'}), 403
+        if not request.current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
         
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['title', 'description', 'category', 'amount']
+        required_fields = ['title', 'description', 'funding_amount', 'close_date', 'category']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field} is required'}), 400
+        
+        # Parse dates
+        try:
+            close_date = datetime.fromisoformat(data['close_date'].replace('Z', '+00:00'))
+            open_date = datetime.fromisoformat(data.get('open_date', datetime.utcnow().isoformat()).replace('Z', '+00:00'))
+        except ValueError:
+            return jsonify({'error': 'Invalid date format'}), 400
+        
+        # Validate category
+        try:
+            category = GrantCategory(data['category'])
+        except ValueError:
+            return jsonify({'error': 'Invalid category'}), 400
         
         # Create grant
         grant = Grant(
             title=data['title'],
             description=data['description'],
-            category=data['category'],
-            amount=float(data['amount']),
-            status=data.get('status', 'draft'),
+            short_description=data.get('short_description'),
+            funding_amount=data['funding_amount'],
+            min_funding=data.get('min_funding'),
+            max_funding=data.get('max_funding'),
+            open_date=open_date,
+            close_date=close_date,
+            category=category,
+            status=GrantStatus(data.get('status', 'draft')),
             eligibility_criteria=data.get('eligibility_criteria'),
-            required_documents=data.get('required_documents'),
-            assessment_criteria=data.get('assessment_criteria'),
-            council_id=user.id,
-            contact_person=data.get('contact_person'),
-            contact_email=data.get('contact_email'),
+            required_documents=json.dumps(data.get('required_documents', [])),
+            organization_id=request.current_user.id,
+            contact_email=data.get('contact_email', request.current_user.email),
             contact_phone=data.get('contact_phone'),
-            max_applications=data.get('max_applications'),
-            auto_approve=data.get('auto_approve', False),
-            public_voting=data.get('public_voting', False)
+            tags=json.dumps(data.get('tags', [])),
+            location_restrictions=data.get('location_restrictions'),
+            website_url=data.get('website_url')
         )
-        
-        # Parse dates if provided
-        if data.get('opens_at'):
-            grant.opens_at = datetime.fromisoformat(data['opens_at'].replace('Z', '+00:00'))
-        
-        if data.get('closes_at'):
-            grant.closes_at = datetime.fromisoformat(data['closes_at'].replace('Z', '+00:00'))
         
         db.session.add(grant)
         db.session.commit()
@@ -148,51 +185,57 @@ def create_grant():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@grants_bp.route('/<int:grant_id>', methods=['PUT'])
+@grants_bp.route('/grants/<int:grant_id>', methods=['PUT'])
+@require_auth
 def update_grant(grant_id):
-    """Update a grant"""
+    """Update existing grant (admin only)"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
+        if not request.current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
         
-        grant = Grant.query.get(grant_id)
-        if not grant:
-            return jsonify({'error': 'Grant not found'}), 404
+        grant = Grant.query.get_or_404(grant_id)
         
-        # Check permissions
-        if user.role in ['council_admin', 'council_staff'] and grant.council_id != user.id:
-            return jsonify({'error': 'Access denied'}), 403
+        # Check if user can edit this grant
+        if grant.organization_id != request.current_user.id and not request.current_user.role.value == 'system_admin':
+            return jsonify({'error': 'Permission denied'}), 403
         
         data = request.get_json()
         
         # Update fields
-        updatable_fields = [
-            'title', 'description', 'category', 'amount', 'status',
-            'eligibility_criteria', 'required_documents', 'assessment_criteria',
-            'contact_person', 'contact_email', 'contact_phone',
-            'max_applications', 'auto_approve', 'public_voting'
-        ]
-        
-        for field in updatable_fields:
-            if field in data:
-                if field == 'amount':
-                    setattr(grant, field, float(data[field]))
-                else:
-                    setattr(grant, field, data[field])
-        
-        # Update dates if provided
-        if 'opens_at' in data:
-            if data['opens_at']:
-                grant.opens_at = datetime.fromisoformat(data['opens_at'].replace('Z', '+00:00'))
-            else:
-                grant.opens_at = None
-        
-        if 'closes_at' in data:
-            if data['closes_at']:
-                grant.closes_at = datetime.fromisoformat(data['closes_at'].replace('Z', '+00:00'))
-            else:
-                grant.closes_at = None
+        if 'title' in data:
+            grant.title = data['title']
+        if 'description' in data:
+            grant.description = data['description']
+        if 'short_description' in data:
+            grant.short_description = data['short_description']
+        if 'funding_amount' in data:
+            grant.funding_amount = data['funding_amount']
+        if 'min_funding' in data:
+            grant.min_funding = data['min_funding']
+        if 'max_funding' in data:
+            grant.max_funding = data['max_funding']
+        if 'close_date' in data:
+            grant.close_date = datetime.fromisoformat(data['close_date'].replace('Z', '+00:00'))
+        if 'open_date' in data:
+            grant.open_date = datetime.fromisoformat(data['open_date'].replace('Z', '+00:00'))
+        if 'category' in data:
+            grant.category = GrantCategory(data['category'])
+        if 'status' in data:
+            grant.status = GrantStatus(data['status'])
+        if 'eligibility_criteria' in data:
+            grant.eligibility_criteria = data['eligibility_criteria']
+        if 'required_documents' in data:
+            grant.required_documents = json.dumps(data['required_documents'])
+        if 'contact_email' in data:
+            grant.contact_email = data['contact_email']
+        if 'contact_phone' in data:
+            grant.contact_phone = data['contact_phone']
+        if 'tags' in data:
+            grant.tags = json.dumps(data['tags'])
+        if 'location_restrictions' in data:
+            grant.location_restrictions = data['location_restrictions']
+        if 'website_url' in data:
+            grant.website_url = data['website_url']
         
         grant.updated_at = datetime.utcnow()
         db.session.commit()
@@ -206,25 +249,19 @@ def update_grant(grant_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@grants_bp.route('/<int:grant_id>', methods=['DELETE'])
+@grants_bp.route('/grants/<int:grant_id>', methods=['DELETE'])
+@require_auth
 def delete_grant(grant_id):
-    """Delete a grant"""
+    """Delete grant (admin only)"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
+        if not request.current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
         
-        grant = Grant.query.get(grant_id)
-        if not grant:
-            return jsonify({'error': 'Grant not found'}), 404
+        grant = Grant.query.get_or_404(grant_id)
         
-        # Check permissions
-        if user.role in ['council_admin', 'council_staff'] and grant.council_id != user.id:
-            return jsonify({'error': 'Access denied'}), 403
-        
-        # Check if grant has applications
-        if grant.applications:
-            return jsonify({'error': 'Cannot delete grant with existing applications'}), 400
+        # Check if user can delete this grant
+        if grant.organization_id != request.current_user.id and not request.current_user.role.value == 'system_admin':
+            return jsonify({'error': 'Permission denied'}), 403
         
         db.session.delete(grant)
         db.session.commit()
@@ -235,70 +272,34 @@ def delete_grant(grant_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@grants_bp.route('/categories', methods=['GET'])
+@grants_bp.route('/grants/categories', methods=['GET'])
 def get_categories():
-    """Get available grant categories"""
-    categories = [
-        'Community Development',
-        'Arts and Culture',
-        'Sports and Recreation',
-        'Environment and Sustainability',
-        'Education and Training',
-        'Health and Wellbeing',
-        'Infrastructure',
-        'Economic Development',
-        'Youth Programs',
-        'Senior Services',
-        'Disability Services',
-        'Emergency Services',
-        'Technology and Innovation',
-        'Heritage and History',
-        'Tourism and Events'
-    ]
-    
+    """Get all grant categories"""
+    categories = [{'value': cat.value, 'label': cat.value.replace('_', ' ').title()} 
+                 for cat in GrantCategory]
     return jsonify({'categories': categories}), 200
 
-@grants_bp.route('/public', methods=['GET'])
-def get_public_grants():
-    """Get public grants (no authentication required)"""
+@grants_bp.route('/grants/stats', methods=['GET'])
+def get_grant_stats():
+    """Get grant statistics"""
     try:
-        # Query parameters for filtering
-        status = request.args.get('status', 'active')
-        category = request.args.get('category')
-        search = request.args.get('search')
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
+        total_grants = Grant.query.count()
+        open_grants = Grant.query.filter(Grant.status == GrantStatus.OPEN).count()
+        total_funding = db.session.query(db.func.sum(Grant.funding_amount)).scalar() or 0
         
-        # Build query for active grants only
-        query = Grant.query.filter_by(status=status)
+        # Category breakdown
+        category_stats = db.session.query(
+            Grant.category, 
+            db.func.count(Grant.id)
+        ).group_by(Grant.category).all()
         
-        # Apply filters
-        if category:
-            query = query.filter_by(category=category)
-        
-        if search:
-            query = query.filter(Grant.title.contains(search) | Grant.description.contains(search))
-        
-        # Order by creation date (newest first)
-        query = query.order_by(Grant.created_at.desc())
-        
-        # Paginate
-        grants = query.paginate(page=page, per_page=per_page, error_out=False)
-        
-        # Return public information only
-        public_grants = []
-        for grant in grants.items:
-            grant_dict = grant.to_dict()
-            # Remove sensitive information
-            grant_dict.pop('council_id', None)
-            public_grants.append(grant_dict)
+        category_breakdown = {cat.value: count for cat, count in category_stats}
         
         return jsonify({
-            'grants': public_grants,
-            'total': grants.total,
-            'pages': grants.pages,
-            'current_page': page,
-            'per_page': per_page
+            'total_grants': total_grants,
+            'open_grants': open_grants,
+            'total_funding': total_funding,
+            'category_breakdown': category_breakdown
         }), 200
         
     except Exception as e:

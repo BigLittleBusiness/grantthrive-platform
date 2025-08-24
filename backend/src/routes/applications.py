@@ -1,178 +1,220 @@
-from datetime import datetime, date
 from flask import Blueprint, request, jsonify
 from src.models.user import db, User
 from src.models.grant import Grant
-from src.models.application import Application
+from src.models.application import Application, ApplicationStatus
 from src.routes.auth import verify_token
+from datetime import datetime
+import json
 
 applications_bp = Blueprint('applications', __name__)
 
-def get_current_user():
-    """Get current user from JWT token"""
-    auth_header = request.headers.get('Authorization')
-    
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return None
-    
-    token = auth_header.split(' ')[1]
-    user_id = verify_token(token)
-    
-    if not user_id:
-        return None
-    
-    return User.query.get(user_id)
-
-@applications_bp.route('', methods=['GET'])
-def get_applications():
-    """Get applications with optional filtering"""
-    try:
-        user = get_current_user()
-        if not user:
+def require_auth(f):
+    """Decorator to require authentication"""
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
             return jsonify({'error': 'Authentication required'}), 401
         
-        # Query parameters for filtering
+        token = auth_header.split(' ')[1]
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 401
+        
+        request.current_user = user
+        return f(*args, **kwargs)
+    
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
+@applications_bp.route('/applications', methods=['GET'])
+@require_auth
+def get_applications():
+    """Get applications (filtered by user role)"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 10, type=int), 100)
         status = request.args.get('status')
-        grant_id = request.args.get('grant_id')
-        search = request.args.get('search')
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
+        grant_id = request.args.get('grant_id', type=int)
         
         # Build query based on user role
-        if user.role in ['council_admin', 'council_staff']:
-            # Council users see applications for their grants
-            grant_ids = [g.id for g in Grant.query.filter_by(council_id=user.id).all()]
-            query = Application.query.filter(Application.grant_id.in_(grant_ids))
+        if request.current_user.is_admin:
+            # Admins see all applications
+            query = Application.query
         else:
-            # Community members see their own applications
-            query = Application.query.filter_by(applicant_email=user.email)
+            # Regular users see only their applications
+            query = Application.query.filter(Application.applicant_id == request.current_user.id)
         
         # Apply filters
         if status:
-            query = query.filter_by(status=status)
+            try:
+                status_enum = ApplicationStatus(status)
+                query = query.filter(Application.status == status_enum)
+            except ValueError:
+                pass
         
         if grant_id:
-            query = query.filter_by(grant_id=grant_id)
+            query = query.filter(Application.grant_id == grant_id)
         
-        if search:
-            query = query.filter(
-                Application.project_title.contains(search) |
-                Application.applicant_name.contains(search) |
-                Application.organization_name.contains(search)
-            )
-        
-        # Order by submission date (newest first)
-        query = query.order_by(Application.submitted_at.desc())
+        # Order by creation date (newest first)
+        query = query.order_by(Application.created_at.desc())
         
         # Paginate
-        applications = query.paginate(page=page, per_page=per_page, error_out=False)
+        applications = query.paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
+        
+        # Prepare response data
+        app_data = []
+        for app in applications.items:
+            app_dict = app.to_dict()
+            
+            # Add grant information
+            if app.grant:
+                app_dict['grant'] = {
+                    'id': app.grant.id,
+                    'title': app.grant.title,
+                    'funding_amount': app.grant.funding_amount,
+                    'close_date': app.grant.close_date.isoformat() if app.grant.close_date else None
+                }
+            
+            # Add applicant information (for admins)
+            if request.current_user.is_admin and app.applicant:
+                app_dict['applicant'] = {
+                    'id': app.applicant.id,
+                    'name': app.applicant.full_name,
+                    'email': app.applicant.email,
+                    'organization': app.applicant.organization_name
+                }
+            
+            app_data.append(app_dict)
         
         return jsonify({
-            'applications': [app.to_dict() for app in applications.items],
-            'total': applications.total,
-            'pages': applications.pages,
-            'current_page': page,
-            'per_page': per_page
+            'applications': app_data,
+            'pagination': {
+                'page': applications.page,
+                'pages': applications.pages,
+                'per_page': applications.per_page,
+                'total': applications.total,
+                'has_next': applications.has_next,
+                'has_prev': applications.has_prev
+            }
         }), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@applications_bp.route('/<int:application_id>', methods=['GET'])
+@applications_bp.route('/applications/<int:application_id>', methods=['GET'])
+@require_auth
 def get_application(application_id):
-    """Get a specific application"""
+    """Get specific application by ID"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        application = Application.query.get(application_id)
-        if not application:
-            return jsonify({'error': 'Application not found'}), 404
+        application = Application.query.get_or_404(application_id)
         
         # Check permissions
-        if user.role in ['council_admin', 'council_staff']:
-            # Council users can see applications for their grants
-            grant = Grant.query.get(application.grant_id)
-            if not grant or grant.council_id != user.id:
-                return jsonify({'error': 'Access denied'}), 403
-        else:
-            # Community members can only see their own applications
-            if application.applicant_email != user.email:
-                return jsonify({'error': 'Access denied'}), 403
+        if not request.current_user.is_admin and application.applicant_id != request.current_user.id:
+            return jsonify({'error': 'Permission denied'}), 403
         
-        return jsonify({'application': application.to_dict()}), 200
+        app_data = application.to_dict()
+        
+        # Add grant information
+        if application.grant:
+            app_data['grant'] = application.grant.to_dict()
+        
+        # Add applicant information (for admins)
+        if request.current_user.is_admin and application.applicant:
+            app_data['applicant'] = application.applicant.to_dict()
+        
+        # Add reviewer information
+        if application.reviewer:
+            app_data['reviewer'] = {
+                'name': application.reviewer.full_name,
+                'email': application.reviewer.email
+            }
+        
+        return jsonify(app_data), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@applications_bp.route('', methods=['POST'])
+@applications_bp.route('/applications', methods=['POST'])
+@require_auth
 def create_application():
-    """Submit a new application"""
+    """Create new application"""
     try:
         data = request.get_json()
         
         # Validate required fields
         required_fields = [
-            'grant_id', 'applicant_name', 'applicant_email',
+            'grant_id', 'organization_name', 'contact_person', 'contact_email',
             'project_title', 'project_description', 'requested_amount'
         ]
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field} is required'}), 400
         
-        # Validate grant exists and is active
+        # Validate grant exists and is open
         grant = Grant.query.get(data['grant_id'])
         if not grant:
             return jsonify({'error': 'Grant not found'}), 404
         
-        if grant.status != 'active':
-            return jsonify({'error': 'Grant is not currently accepting applications'}), 400
+        if grant.status.value not in ['open', 'closing_soon']:
+            return jsonify({'error': 'Grant is not accepting applications'}), 400
         
-        # Check if grant has closed
-        if grant.closes_at and grant.closes_at < datetime.utcnow():
-            return jsonify({'error': 'Grant application period has closed'}), 400
+        # Check if user already has an application for this grant
+        existing_app = Application.query.filter_by(
+            grant_id=data['grant_id'],
+            applicant_id=request.current_user.id
+        ).first()
         
-        # Check maximum applications limit
-        if grant.max_applications:
-            current_count = Application.query.filter_by(grant_id=grant.id).count()
-            if current_count >= grant.max_applications:
-                return jsonify({'error': 'Grant has reached maximum number of applications'}), 400
+        if existing_app:
+            return jsonify({'error': 'You have already applied for this grant'}), 400
         
         # Create application
         application = Application(
             grant_id=data['grant_id'],
-            applicant_name=data['applicant_name'],
-            applicant_email=data['applicant_email'],
-            applicant_phone=data.get('applicant_phone'),
-            organization_name=data.get('organization_name'),
+            applicant_id=request.current_user.id,
+            organization_name=data['organization_name'],
             organization_type=data.get('organization_type'),
             abn_acn=data.get('abn_acn'),
+            contact_person=data['contact_person'],
+            contact_email=data['contact_email'],
+            contact_phone=data.get('contact_phone'),
+            address_line1=data.get('address_line1'),
+            address_line2=data.get('address_line2'),
+            city=data.get('city'),
+            state=data.get('state'),
+            postcode=data.get('postcode'),
+            country=data.get('country', 'Australia'),
             project_title=data['project_title'],
             project_description=data['project_description'],
-            requested_amount=float(data['requested_amount']),
-            project_budget=data.get('project_budget'),
-            documents=data.get('documents'),
-            public_comments=data.get('public_comments')
+            project_objectives=data.get('project_objectives'),
+            project_timeline=data.get('project_timeline'),
+            requested_amount=data['requested_amount'],
+            total_project_cost=data.get('total_project_cost'),
+            other_funding_sources=data.get('other_funding_sources'),
+            budget_breakdown=json.dumps(data.get('budget_breakdown', [])),
+            expected_outcomes=data.get('expected_outcomes'),
+            target_beneficiaries=data.get('target_beneficiaries'),
+            community_impact=data.get('community_impact'),
+            status=ApplicationStatus.DRAFT,
+            declaration_accepted=data.get('declaration_accepted', False)
         )
         
-        # Parse dates if provided
-        if data.get('project_start_date'):
-            application.project_start_date = datetime.strptime(data['project_start_date'], '%Y-%m-%d').date()
-        
-        if data.get('project_end_date'):
-            application.project_end_date = datetime.strptime(data['project_end_date'], '%Y-%m-%d').date()
-        
-        # Auto-approve if enabled
-        if grant.auto_approve:
-            application.status = 'approved'
-            application.approved_amount = application.requested_amount
-            application.decision_date = datetime.utcnow()
-        
         db.session.add(application)
+        
+        # Update grant application count
+        grant.application_count += 1
+        
         db.session.commit()
         
         return jsonify({
-            'message': 'Application submitted successfully',
+            'message': 'Application created successfully',
             'application': application.to_dict()
         }), 201
         
@@ -180,118 +222,42 @@ def create_application():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@applications_bp.route('/<int:application_id>/status', methods=['PUT'])
-def update_application_status(application_id):
-    """Update application status (council users only)"""
-    try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        if user.role not in ['council_admin', 'council_staff']:
-            return jsonify({'error': 'Only council users can update application status'}), 403
-        
-        application = Application.query.get(application_id)
-        if not application:
-            return jsonify({'error': 'Application not found'}), 404
-        
-        # Check permissions
-        grant = Grant.query.get(application.grant_id)
-        if not grant or grant.council_id != user.id:
-            return jsonify({'error': 'Access denied'}), 403
-        
-        data = request.get_json()
-        
-        if not data.get('status'):
-            return jsonify({'error': 'Status is required'}), 400
-        
-        valid_statuses = ['submitted', 'under_review', 'approved', 'rejected', 'withdrawn']
-        if data['status'] not in valid_statuses:
-            return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
-        
-        # Update application
-        application.status = data['status']
-        application.reviewer_notes = data.get('reviewer_notes')
-        application.public_notes = data.get('public_notes')
-        application.score = data.get('score')
-        application.reviewed_at = datetime.utcnow()
-        
-        if data['status'] in ['approved', 'rejected']:
-            application.decision_date = datetime.utcnow()
-            
-            if data['status'] == 'approved':
-                application.approved_amount = data.get('approved_amount', application.requested_amount)
-        
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Application status updated successfully',
-            'application': application.to_dict()
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@applications_bp.route('/<int:application_id>', methods=['PUT'])
+@applications_bp.route('/applications/<int:application_id>', methods=['PUT'])
+@require_auth
 def update_application(application_id):
-    """Update application details"""
+    """Update existing application"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        application = Application.query.get(application_id)
-        if not application:
-            return jsonify({'error': 'Application not found'}), 404
+        application = Application.query.get_or_404(application_id)
         
         # Check permissions
-        if user.role in ['council_admin', 'council_staff']:
-            # Council users can update applications for their grants
-            grant = Grant.query.get(application.grant_id)
-            if not grant or grant.council_id != user.id:
-                return jsonify({'error': 'Access denied'}), 403
-        else:
-            # Community members can only update their own applications if still in draft/submitted status
-            if application.applicant_email != user.email:
-                return jsonify({'error': 'Access denied'}), 403
-            
-            if application.status not in ['submitted']:
-                return jsonify({'error': 'Cannot update application after review has started'}), 400
+        if not request.current_user.is_admin and application.applicant_id != request.current_user.id:
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Check if application can be edited
+        if application.status not in [ApplicationStatus.DRAFT, ApplicationStatus.REQUIRES_CLARIFICATION]:
+            return jsonify({'error': 'Application cannot be edited in current status'}), 400
         
         data = request.get_json()
         
-        # Update fields based on user role
-        if user.role in ['council_admin', 'council_staff']:
-            # Council users can update assessment fields
-            updatable_fields = [
-                'priority', 'score', 'reviewer_notes', 'public_notes',
-                'approved_amount', 'payment_schedule', 'reporting_requirements',
-                'compliance_status'
-            ]
-        else:
-            # Community members can update application details
-            updatable_fields = [
-                'applicant_name', 'applicant_phone', 'organization_name',
-                'organization_type', 'abn_acn', 'project_title',
-                'project_description', 'requested_amount', 'project_budget',
-                'documents', 'public_comments'
-            ]
+        # Update fields
+        updatable_fields = [
+            'organization_name', 'organization_type', 'abn_acn',
+            'contact_person', 'contact_email', 'contact_phone',
+            'address_line1', 'address_line2', 'city', 'state', 'postcode', 'country',
+            'project_title', 'project_description', 'project_objectives', 'project_timeline',
+            'requested_amount', 'total_project_cost', 'other_funding_sources',
+            'expected_outcomes', 'target_beneficiaries', 'community_impact',
+            'declaration_accepted'
+        ]
         
         for field in updatable_fields:
             if field in data:
-                if field in ['requested_amount', 'approved_amount', 'score']:
-                    setattr(application, field, float(data[field]) if data[field] is not None else None)
+                if field == 'budget_breakdown':
+                    setattr(application, field, json.dumps(data[field]))
                 else:
                     setattr(application, field, data[field])
         
-        # Update dates if provided
-        if 'project_start_date' in data and data['project_start_date']:
-            application.project_start_date = datetime.strptime(data['project_start_date'], '%Y-%m-%d').date()
-        
-        if 'project_end_date' in data and data['project_end_date']:
-            application.project_end_date = datetime.strptime(data['project_end_date'], '%Y-%m-%d').date()
-        
+        application.updated_at = datetime.utcnow()
         db.session.commit()
         
         return jsonify({
@@ -303,82 +269,123 @@ def update_application(application_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@applications_bp.route('/<int:application_id>', methods=['DELETE'])
-def delete_application(application_id):
-    """Delete/withdraw an application"""
+@applications_bp.route('/applications/<int:application_id>/submit', methods=['POST'])
+@require_auth
+def submit_application(application_id):
+    """Submit application for review"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        application = Application.query.get(application_id)
-        if not application:
-            return jsonify({'error': 'Application not found'}), 404
+        application = Application.query.get_or_404(application_id)
         
         # Check permissions
-        if user.role in ['council_admin', 'council_staff']:
-            # Council users can delete applications for their grants
-            grant = Grant.query.get(application.grant_id)
-            if not grant or grant.council_id != user.id:
-                return jsonify({'error': 'Access denied'}), 403
-        else:
-            # Community members can only withdraw their own applications
-            if application.applicant_email != user.email:
-                return jsonify({'error': 'Access denied'}), 403
-            
-            if application.status not in ['submitted', 'under_review']:
-                return jsonify({'error': 'Cannot withdraw application after decision has been made'}), 400
+        if application.applicant_id != request.current_user.id:
+            return jsonify({'error': 'Permission denied'}), 403
         
-        if user.role in ['council_admin', 'council_staff']:
-            # Council users can permanently delete
-            db.session.delete(application)
-        else:
-            # Community members withdraw (change status)
-            application.status = 'withdrawn'
+        # Check if application can be submitted
+        if application.status != ApplicationStatus.DRAFT:
+            return jsonify({'error': 'Application has already been submitted'}), 400
         
+        # Validate required fields for submission
+        required_fields = [
+            'organization_name', 'contact_person', 'contact_email',
+            'project_title', 'project_description', 'requested_amount'
+        ]
+        
+        for field in required_fields:
+            if not getattr(application, field):
+                return jsonify({'error': f'{field} is required for submission'}), 400
+        
+        if not application.declaration_accepted:
+            return jsonify({'error': 'Declaration must be accepted'}), 400
+        
+        # Submit application
+        application.status = ApplicationStatus.SUBMITTED
+        application.submitted_at = datetime.utcnow()
         db.session.commit()
         
-        message = 'Application deleted successfully' if user.role in ['council_admin', 'council_staff'] else 'Application withdrawn successfully'
-        
-        return jsonify({'message': message}), 200
+        return jsonify({
+            'message': 'Application submitted successfully',
+            'application': application.to_dict()
+        }), 200
         
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@applications_bp.route('/stats', methods=['GET'])
-def get_application_stats():
-    """Get application statistics (council users only)"""
+@applications_bp.route('/applications/<int:application_id>/review', methods=['POST'])
+@require_auth
+def review_application(application_id):
+    """Review application (admin only)"""
     try:
-        user = get_current_user()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
+        if not request.current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
         
-        if user.role not in ['council_admin', 'council_staff']:
-            return jsonify({'error': 'Only council users can view statistics'}), 403
+        application = Application.query.get_or_404(application_id)
+        data = request.get_json()
         
-        # Get applications for user's grants
-        grant_ids = [g.id for g in Grant.query.filter_by(council_id=user.id).all()]
-        applications = Application.query.filter(Application.grant_id.in_(grant_ids)).all()
+        # Validate status
+        new_status = data.get('status')
+        if not new_status:
+            return jsonify({'error': 'Status is required'}), 400
         
-        # Calculate statistics
-        total_applications = len(applications)
-        status_counts = {}
-        total_requested = 0
-        total_approved = 0
+        try:
+            status_enum = ApplicationStatus(new_status)
+        except ValueError:
+            return jsonify({'error': 'Invalid status'}), 400
         
-        for app in applications:
-            status_counts[app.status] = status_counts.get(app.status, 0) + 1
-            total_requested += app.requested_amount or 0
-            if app.approved_amount:
-                total_approved += app.approved_amount
+        # Update application
+        application.status = status_enum
+        application.reviewed_by = request.current_user.id
+        application.reviewed_at = datetime.utcnow()
+        application.review_notes = data.get('review_notes')
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Application reviewed successfully',
+            'application': application.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@applications_bp.route('/applications/stats', methods=['GET'])
+@require_auth
+def get_application_stats():
+    """Get application statistics"""
+    try:
+        if request.current_user.is_admin:
+            # Admin sees all stats
+            total_applications = Application.query.count()
+            pending_review = Application.query.filter(
+                Application.status == ApplicationStatus.SUBMITTED
+            ).count()
+            approved = Application.query.filter(
+                Application.status == ApplicationStatus.APPROVED
+            ).count()
+            rejected = Application.query.filter(
+                Application.status == ApplicationStatus.REJECTED
+            ).count()
+        else:
+            # Users see their own stats
+            user_apps = Application.query.filter(Application.applicant_id == request.current_user.id)
+            total_applications = user_apps.count()
+            pending_review = user_apps.filter(
+                Application.status == ApplicationStatus.SUBMITTED
+            ).count()
+            approved = user_apps.filter(
+                Application.status == ApplicationStatus.APPROVED
+            ).count()
+            rejected = user_apps.filter(
+                Application.status == ApplicationStatus.REJECTED
+            ).count()
         
         return jsonify({
             'total_applications': total_applications,
-            'status_counts': status_counts,
-            'total_requested_amount': total_requested,
-            'total_approved_amount': total_approved,
-            'approval_rate': (status_counts.get('approved', 0) / total_applications * 100) if total_applications > 0 else 0
+            'pending_review': pending_review,
+            'approved': approved,
+            'rejected': rejected,
+            'success_rate': (approved / total_applications * 100) if total_applications > 0 else 0
         }), 200
         
     except Exception as e:

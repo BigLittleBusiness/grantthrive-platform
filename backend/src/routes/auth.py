@@ -1,27 +1,33 @@
-from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
+from werkzeug.security import generate_password_hash
+from src.models.user import db, User, UserRole, UserStatus
 import jwt
-from src.models.user import db, User
+from datetime import datetime, timedelta
+import re
 
 auth_bp = Blueprint('auth', __name__)
 
-# JWT Configuration
-JWT_SECRET = 'grantthrive-jwt-secret-change-in-production'
-JWT_EXPIRATION_HOURS = 24
+def validate_government_email(email):
+    """Validate government email domains"""
+    email_lower = email.lower()
+    australian_gov_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.gov\.au$'
+    new_zealand_gov_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.govt\.nz$'
+    
+    return (re.match(australian_gov_pattern, email_lower) or 
+            re.match(new_zealand_gov_pattern, email_lower))
 
 def generate_token(user_id):
-    """Generate JWT token for user"""
+    """Generate JWT token"""
     payload = {
         'user_id': user_id,
-        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
-        'iat': datetime.utcnow()
+        'exp': datetime.utcnow() + timedelta(days=7)
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
+    return jwt.encode(payload, current_app.config['SECRET_KEY'], algorithm='HS256')
 
 def verify_token(token):
-    """Verify JWT token and return user_id"""
+    """Verify JWT token"""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+        payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
         return payload['user_id']
     except jwt.ExpiredSignatureError:
         return None
@@ -30,51 +36,66 @@ def verify_token(token):
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """Register a new user"""
+    """User registration endpoint"""
     try:
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['username', 'email', 'password']
+        required_fields = ['email', 'password', 'first_name', 'last_name', 'user_type']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field} is required'}), 400
         
         # Check if user already exists
-        if User.query.filter_by(username=data['username']).first():
-            return jsonify({'error': 'Username already exists'}), 400
-        
         if User.query.filter_by(email=data['email']).first():
-            return jsonify({'error': 'Email already exists'}), 400
+            return jsonify({'error': 'Email already registered'}), 400
+        
+        # Validate user type and email domain
+        user_type = data['user_type']
+        email = data['email']
+        
+        if user_type == 'council_staff':
+            if not validate_government_email(email):
+                return jsonify({
+                    'error': 'Council staff must use government email (.gov.au or .govt.nz)'
+                }), 400
+            role = UserRole.COUNCIL_STAFF
+            status = UserStatus.PENDING  # Requires admin approval
+        elif user_type == 'professional_consultant':
+            role = UserRole.PROFESSIONAL_CONSULTANT
+            status = UserStatus.PENDING  # Requires verification
+        else:
+            role = UserRole.COMMUNITY_MEMBER
+            status = UserStatus.ACTIVE  # Immediate approval
         
         # Create new user
         user = User(
-            username=data['username'],
-            email=data['email'],
-            first_name=data.get('first_name'),
-            last_name=data.get('last_name'),
+            email=email,
+            first_name=data['first_name'],
+            last_name=data['last_name'],
             phone=data.get('phone'),
-            role=data.get('role', 'council_staff'),
-            council_name=data.get('council_name'),
-            council_tier=data.get('council_tier'),
-            council_state=data.get('council_state'),
-            council_population=data.get('council_population'),
+            organization_name=data.get('organization_name'),
+            position=data.get('position'),
             department=data.get('department'),
-            position=data.get('position')
+            role=role,
+            status=status,
+            email_verified=False
         )
-        
         user.set_password(data['password'])
         
         db.session.add(user)
         db.session.commit()
         
-        # Generate token
-        token = generate_token(user.id)
+        # Generate token for active users
+        token = None
+        if status == UserStatus.ACTIVE:
+            token = generate_token(user.id)
         
         return jsonify({
-            'message': 'User registered successfully',
+            'message': 'Registration successful',
+            'user': user.to_dict(),
             'token': token,
-            'user': user.to_dict()
+            'requires_approval': status == UserStatus.PENDING
         }), 201
         
     except Exception as e:
@@ -83,22 +104,27 @@ def register():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """Login user"""
+    """User login endpoint"""
     try:
         data = request.get_json()
         
-        # Validate required fields
         if not data.get('email') or not data.get('password'):
             return jsonify({'error': 'Email and password are required'}), 400
         
-        # Find user
         user = User.query.filter_by(email=data['email']).first()
         
         if not user or not user.check_password(data['password']):
             return jsonify({'error': 'Invalid email or password'}), 401
         
-        if not user.is_active:
-            return jsonify({'error': 'Account is deactivated'}), 401
+        if user.status != UserStatus.ACTIVE:
+            status_messages = {
+                UserStatus.PENDING: 'Account pending approval',
+                UserStatus.SUSPENDED: 'Account suspended',
+                UserStatus.REJECTED: 'Account rejected'
+            }
+            return jsonify({
+                'error': status_messages.get(user.status, 'Account not active')
+            }), 403
         
         # Update last login
         user.last_login = datetime.utcnow()
@@ -109,30 +135,29 @@ def login():
         
         return jsonify({
             'message': 'Login successful',
-            'token': token,
-            'user': user.to_dict()
+            'user': user.to_dict(),
+            'token': token
         }), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@auth_bp.route('/verify', methods=['POST'])
-def verify():
-    """Verify JWT token"""
+@auth_bp.route('/verify-token', methods=['POST'])
+def verify_user_token():
+    """Verify JWT token endpoint"""
     try:
-        auth_header = request.headers.get('Authorization')
+        data = request.get_json()
+        token = data.get('token')
         
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Authorization header required'}), 401
+        if not token:
+            return jsonify({'error': 'Token is required'}), 400
         
-        token = auth_header.split(' ')[1]
         user_id = verify_token(token)
-        
         if not user_id:
             return jsonify({'error': 'Invalid or expired token'}), 401
         
         user = User.query.get(user_id)
-        if not user or not user.is_active:
+        if not user or user.status != UserStatus.ACTIVE:
             return jsonify({'error': 'User not found or inactive'}), 401
         
         return jsonify({
@@ -143,91 +168,95 @@ def verify():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@auth_bp.route('/refresh', methods=['POST'])
-def refresh():
-    """Refresh JWT token"""
+@auth_bp.route('/demo-login', methods=['POST'])
+def demo_login():
+    """Demo login for testing purposes"""
     try:
-        auth_header = request.headers.get('Authorization')
+        data = request.get_json()
+        demo_type = data.get('demo_type', 'community_member')
         
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Authorization header required'}), 401
+        # Create or get demo users
+        demo_users = {
+            'council_admin': {
+                'email': 'sarah.johnson@melbourne.vic.gov.au',
+                'first_name': 'Sarah',
+                'last_name': 'Johnson',
+                'role': UserRole.COUNCIL_ADMIN,
+                'organization_name': 'Melbourne City Council',
+                'position': 'Grants Manager',
+                'department': 'Community Development'
+            },
+            'council_staff': {
+                'email': 'michael.chen@melbourne.vic.gov.au',
+                'first_name': 'Michael',
+                'last_name': 'Chen',
+                'role': UserRole.COUNCIL_STAFF,
+                'organization_name': 'Melbourne City Council',
+                'position': 'Grants Officer',
+                'department': 'Community Development'
+            },
+            'community_member': {
+                'email': 'emma.thompson@communityarts.org.au',
+                'first_name': 'Emma',
+                'last_name': 'Thompson',
+                'role': UserRole.COMMUNITY_MEMBER,
+                'organization_name': 'Community Arts Collective',
+                'position': 'Director',
+                'department': None
+            },
+            'professional_consultant': {
+                'email': 'david.wilson@grantsuccess.com.au',
+                'first_name': 'David',
+                'last_name': 'Wilson',
+                'role': UserRole.PROFESSIONAL_CONSULTANT,
+                'organization_name': 'Grant Success Consulting',
+                'position': 'Senior Consultant',
+                'department': None
+            }
+        }
         
-        token = auth_header.split(' ')[1]
-        user_id = verify_token(token)
+        if demo_type not in demo_users:
+            return jsonify({'error': 'Invalid demo type'}), 400
         
-        if not user_id:
-            return jsonify({'error': 'Invalid or expired token'}), 401
+        demo_data = demo_users[demo_type]
         
-        user = User.query.get(user_id)
-        if not user or not user.is_active:
-            return jsonify({'error': 'User not found or inactive'}), 401
+        # Check if demo user exists
+        user = User.query.filter_by(email=demo_data['email']).first()
         
-        # Generate new token
-        new_token = generate_token(user.id)
+        if not user:
+            # Create demo user
+            user = User(
+                email=demo_data['email'],
+                first_name=demo_data['first_name'],
+                last_name=demo_data['last_name'],
+                role=demo_data['role'],
+                organization_name=demo_data['organization_name'],
+                position=demo_data['position'],
+                department=demo_data['department'],
+                status=UserStatus.ACTIVE,
+                email_verified=True
+            )
+            user.set_password('demo123')
+            db.session.add(user)
+            db.session.commit()
+        
+        # Generate token
+        token = generate_token(user.id)
         
         return jsonify({
-            'token': new_token,
-            'user': user.to_dict()
+            'message': 'Demo login successful',
+            'user': user.to_dict(),
+            'token': token
         }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@auth_bp.route('/change-password', methods=['POST'])
-def change_password():
-    """Change user password"""
-    try:
-        auth_header = request.headers.get('Authorization')
-        
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Authorization header required'}), 401
-        
-        token = auth_header.split(' ')[1]
-        user_id = verify_token(token)
-        
-        if not user_id:
-            return jsonify({'error': 'Invalid or expired token'}), 401
-        
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        data = request.get_json()
-        
-        if not data.get('current_password') or not data.get('new_password'):
-            return jsonify({'error': 'Current password and new password are required'}), 400
-        
-        if not user.check_password(data['current_password']):
-            return jsonify({'error': 'Current password is incorrect'}), 400
-        
-        if len(data['new_password']) < 6:
-            return jsonify({'error': 'New password must be at least 6 characters'}), 400
-        
-        user.set_password(data['new_password'])
-        db.session.commit()
-        
-        return jsonify({'message': 'Password changed successfully'}), 200
         
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@auth_bp.route('/forgot-password', methods=['POST'])
-def forgot_password():
-    """Request password reset (placeholder for email integration)"""
-    try:
-        data = request.get_json()
-        
-        if not data.get('email'):
-            return jsonify({'error': 'Email is required'}), 400
-        
-        user = User.query.filter_by(email=data['email']).first()
-        
-        # Always return success for security (don't reveal if email exists)
-        return jsonify({
-            'message': 'If the email exists, a password reset link has been sent'
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    """User logout endpoint"""
+    # In a JWT system, logout is typically handled client-side
+    # by removing the token from storage
+    return jsonify({'message': 'Logout successful'}), 200
 
