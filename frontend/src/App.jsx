@@ -12,6 +12,7 @@ import ApplicationForm from './pages/ApplicationForm.jsx';
 import CommunityForum from './pages/CommunityForum.jsx';
 import ResourceHub from './pages/ResourceHub.jsx';
 import WinnersShowcase from './pages/WinnersShowcase.jsx';
+import GrantCreationWizard from './pages/GrantCreationWizard.jsx';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -61,6 +62,8 @@ function App() {
       return renderDashboard();
     case 'admin-approvals':
       return <AdminApprovalDashboard user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
+    case 'create-grant':
+      return <GrantCreationWizard user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'grants':
       return <GrantsListing user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'grant-details':
