@@ -14,6 +14,7 @@ import ResourceHub from './pages/ResourceHub.jsx';
 import WinnersShowcase from './pages/WinnersShowcase.jsx';
 import GrantCreationWizard from './pages/GrantCreationWizard.jsx';
 import CommunicationSettings from './pages/CommunicationSettings.jsx';
+import QRCodeManagement from './pages/QRCodeManagement.jsx';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -79,6 +80,8 @@ function App() {
       return <WinnersShowcase user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'communication-settings':
       return <CommunicationSettings user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
+    case 'qr-code-management':
+      return <QRCodeManagement user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     default:
       return renderDashboard();
   }
