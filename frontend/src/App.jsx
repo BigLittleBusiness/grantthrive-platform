@@ -13,6 +13,7 @@ import CommunityForum from './pages/CommunityForum.jsx';
 import ResourceHub from './pages/ResourceHub.jsx';
 import WinnersShowcase from './pages/WinnersShowcase.jsx';
 import GrantCreationWizard from './pages/GrantCreationWizard.jsx';
+import CommunicationSettings from './pages/CommunicationSettings.jsx';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -76,6 +77,8 @@ function App() {
       return <ResourceHub user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'winners-showcase':
       return <WinnersShowcase user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
+    case 'communication-settings':
+      return <CommunicationSettings user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     default:
       return renderDashboard();
   }

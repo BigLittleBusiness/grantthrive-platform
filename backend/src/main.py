@@ -14,6 +14,8 @@ from src.routes.admin import admin_bp
 from src.routes.files import files_bp
 from src.routes.grant_wizard import grant_wizard_bp
 from src.routes.application_review import application_review_bp
+from src.routes.integrations_routes import integrations_bp
+from src.routes.communication_routes import communication_bp
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
@@ -30,6 +32,8 @@ app.register_blueprint(admin_bp, url_prefix='/api')
 app.register_blueprint(files_bp, url_prefix='/api')
 app.register_blueprint(grant_wizard_bp, url_prefix='/api')
 app.register_blueprint(application_review_bp, url_prefix='/api')
+app.register_blueprint(integrations_bp, url_prefix='/api')
+app.register_blueprint(communication_bp, url_prefix='/api')
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
