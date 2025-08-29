@@ -17,6 +17,7 @@ from src.routes.application_review import application_review_bp
 from src.routes.integrations_routes import integrations_bp
 from src.routes.communication_routes import communication_bp
 from src.routes.qr_code_routes import qr_code_bp
+from src.routes.quick_wins_routes import quick_wins_bp
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
@@ -36,6 +37,7 @@ app.register_blueprint(application_review_bp, url_prefix='/api')
 app.register_blueprint(integrations_bp, url_prefix='/api')
 app.register_blueprint(communication_bp, url_prefix='/api')
 app.register_blueprint(qr_code_bp, url_prefix='/api')
+app.register_blueprint(quick_wins_bp, url_prefix='/api')
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
