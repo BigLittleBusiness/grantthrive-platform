@@ -3,9 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from ..models.application import Application
 from ..models.grant import Grant
-from ..models.user import User
-from ..utils.email import send_email
-from .. import db
+from ..models.user import User, db
+from ..utils.email import EmailService
 import uuid
 
 application_review_bp = Blueprint('application_review', __name__)
@@ -145,19 +144,26 @@ def score_application(application_id):
             applicant = User.query.get(application.applicant_id)
             grant = Grant.query.get(application.grant_id)
             
-            send_email(
+            email_service = EmailService()
+            decision_text = 'approved' if recommendation == 'approve' else 'declined'
+            
+            email_service.send_email(
                 to_email=applicant.email,
                 subject=f'Grant Application Decision: {grant.title}',
-                template='application_decision',
-                context={
-                    'applicant_name': f"{applicant.first_name} {applicant.last_name}",
-                    'grant_title': grant.title,
-                    'project_title': application.project_title,
-                    'decision': 'approved' if recommendation == 'approve' else 'declined',
-                    'score': round(total_score, 1),
-                    'comments': comments,
-                    'amount': application.requested_amount if recommendation == 'approve' else None
-                }
+                html_content=f'''
+                <h2>Grant Application Decision</h2>
+                <p>Dear {applicant.first_name} {applicant.last_name},</p>
+                <p>We have completed the review of your grant application:</p>
+                <ul>
+                    <li><strong>Grant:</strong> {grant.title}</li>
+                    <li><strong>Project:</strong> {application.project_title}</li>
+                    <li><strong>Decision:</strong> {decision_text.title()}</li>
+                    <li><strong>Score:</strong> {round(total_score, 1)}/10</li>
+                    {f'<li><strong>Amount:</strong> ${application.requested_amount:,.2f}</li>' if recommendation == 'approve' else ''}
+                </ul>
+                <p><strong>Comments:</strong> {comments}</p>
+                <p>Best regards,<br>GrantThrive Platform</p>
+                '''
             )
         
         return jsonify({
@@ -204,21 +210,26 @@ def assign_reviewers(application_id):
         grant = Grant.query.get(application.grant_id)
         applicant = User.query.get(application.applicant_id)
         
+        email_service = EmailService()
         for reviewer_id in reviewers:
             reviewer = User.query.get(reviewer_id)
-            send_email(
+            email_service.send_email(
                 to_email=reviewer.email,
                 subject=f'Application Review Assignment: {grant.title}',
-                template='review_assignment',
-                context={
-                    'reviewer_name': f"{reviewer.first_name} {reviewer.last_name}",
-                    'grant_title': grant.title,
-                    'project_title': application.project_title,
-                    'applicant_name': f"{applicant.first_name} {applicant.last_name}",
-                    'organization': applicant.organization,
-                    'due_date': (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%d'),
-                    'application_url': f'/applications/review/{application.id}'
-                }
+                html_content=f'''
+                <h2>Application Review Assignment</h2>
+                <p>Dear {reviewer.first_name} {reviewer.last_name},</p>
+                <p>You have been assigned to review a grant application:</p>
+                <ul>
+                    <li><strong>Grant:</strong> {grant.title}</li>
+                    <li><strong>Project:</strong> {application.project_title}</li>
+                    <li><strong>Applicant:</strong> {applicant.first_name} {applicant.last_name}</li>
+                    <li><strong>Organization:</strong> {applicant.organization}</li>
+                    <li><strong>Due Date:</strong> {(datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%d')}</li>
+                </ul>
+                <p>Please review the application at: /applications/review/{application.id}</p>
+                <p>Best regards,<br>GrantThrive Platform</p>
+                '''
             )
         
         return jsonify({

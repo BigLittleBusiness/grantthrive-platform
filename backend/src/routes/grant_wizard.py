@@ -2,9 +2,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from ..models.grant import Grant
-from ..models.user import User
-from ..utils.email import send_email
-from .. import db
+from ..models.user import User, db
+from ..utils.email import EmailService
 import uuid
 
 grant_wizard_bp = Blueprint('grant_wizard', __name__)
@@ -245,18 +244,23 @@ def publish_grant():
         
         # Notify review committee
         if grant.notification_settings.get('emailCommittee', True):
+            email_service = EmailService()
             for reviewer in grant.review_committee:
-                send_email(
+                email_service.send_email(
                     to_email=reviewer['email'],
                     subject=f'New Grant Program for Review: {grant.title}',
-                    template='grant_review_assignment',
-                    context={
-                        'reviewer_name': reviewer['name'],
-                        'grant_title': grant.title,
-                        'council_name': user.organization,
-                        'review_deadline': (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%d'),
-                        'grant_url': f'/grants/{grant.id}'
-                    }
+                    html_content=f'''
+                    <h2>New Grant Program for Review</h2>
+                    <p>Dear {reviewer['name']},</p>
+                    <p>A new grant program has been created and requires your review:</p>
+                    <ul>
+                        <li><strong>Grant Title:</strong> {grant.title}</li>
+                        <li><strong>Council:</strong> {user.organization}</li>
+                        <li><strong>Review Deadline:</strong> {(datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%d')}</li>
+                    </ul>
+                    <p>Please review the grant program at: /grants/{grant.id}</p>
+                    <p>Best regards,<br>GrantThrive Platform</p>
+                    '''
                 )
         
         # Public announcement if enabled and published

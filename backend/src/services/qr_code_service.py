@@ -7,7 +7,6 @@ import qrcode
 import qrcode.image.svg
 from qrcode.image.styledpil import StyledPilImage
 from qrcode.image.styles.moduledrawers import RoundedModuleDrawer, SquareModuleDrawer, CircleModuleDrawer
-from qrcode.image.styles.colorfills import SolidFillColorMask
 import os
 import uuid
 from datetime import datetime
@@ -90,10 +89,8 @@ class QRCodeService:
                 qr_img = qr.make_image(
                     image_factory=StyledPilImage,
                     module_drawer=style_config['module_drawer'],
-                    color_mask=SolidFillColorMask(
-                        front_color=style_config['fill_color'],
-                        back_color=style_config['back_color']
-                    )
+                    fill_color=style_config['fill_color'],
+                    back_color=style_config['back_color']
                 )
                 
                 # Add logo in center (if available)
