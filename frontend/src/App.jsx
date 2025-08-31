@@ -15,6 +15,8 @@ import WinnersShowcase from './pages/WinnersShowcase.jsx';
 import GrantCreationWizard from './pages/GrantCreationWizard.jsx';
 import CommunicationSettings from './pages/CommunicationSettings.jsx';
 import QRCodeManagement from './pages/QRCodeManagement.jsx';
+import CommunityVoting from './pages/CommunityVoting.jsx';
+import PublicGrantMap from './pages/PublicGrantMap.jsx';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -82,6 +84,10 @@ function App() {
       return <CommunicationSettings user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     case 'qr-code-management':
       return <QRCodeManagement user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
+    case 'community-voting':
+      return <CommunityVoting user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
+    case 'grant-map':
+      return <PublicGrantMap user={currentUser} onNavigate={navigateToPage} onLogout={handleLogout} />;
     default:
       return renderDashboard();
   }
