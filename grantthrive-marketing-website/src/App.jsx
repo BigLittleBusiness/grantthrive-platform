@@ -159,15 +159,15 @@ function HeroSection() {
 
             <div className="grid grid-cols-3 gap-8 pt-8">
               <div className="text-center">
-                <div className="text-3xl font-bold text-yellow-300">171%</div>
+                <div className="text-3xl font-bold text-yellow-300">312%</div>
                 <div className="text-sm text-blue-100">Average ROI</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold text-yellow-300">7mo</div>
+                <div className="text-3xl font-bold text-yellow-300">4mo</div>
                 <div className="text-sm text-blue-100">Payback Period</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold text-yellow-300">$12K+</div>
+                <div className="text-3xl font-bold text-yellow-300">$7.5K+</div>
                 <div className="text-sm text-blue-100">Annual Savings</div>
               </div>
             </div>
@@ -446,19 +446,19 @@ function ROISection() {
               <div className="bg-white/20 rounded-lg p-4">
                 <h4 className="font-semibold mb-2">Small Council (100 applications/year)</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>ROI: <span className="font-bold text-yellow-300">171%</span></div>
-                  <div>Payback: <span className="font-bold text-yellow-300">7 months</span></div>
-                  <div>Annual Savings: <span className="font-bold text-yellow-300">$12,300</span></div>
-                  <div>vs SmartyGrants: <span className="font-bold text-yellow-300">$2,300/year</span></div>
+                  <div>ROI: <span className="font-bold text-yellow-300">312%</span></div>
+                  <div>Payback: <span className="font-bold text-yellow-300">4 months</span></div>
+                  <div>Annual Savings: <span className="font-bold text-yellow-300">$7,500</span></div>
+                  <div>vs SmartyGrants: <span className="font-bold text-yellow-300">$4,104/year</span></div>
                 </div>
               </div>
               <div className="bg-white/20 rounded-lg p-4">
                 <h4 className="font-semibold mb-2">Medium Council (300 applications/year)</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>ROI: <span className="font-bold text-yellow-300">250%+</span></div>
-                  <div>Payback: <span className="font-bold text-yellow-300">5 months</span></div>
-                  <div>Annual Savings: <span className="font-bold text-yellow-300">$35,000+</span></div>
-                  <div>vs SmartyGrants: <span className="font-bold text-yellow-300">$7,500/year</span></div>
+                  <div>ROI: <span className="font-bold text-yellow-300">450%+</span></div>
+                  <div>Payback: <span className="font-bold text-yellow-300">3 months</span></div>
+                  <div>Annual Savings: <span className="font-bold text-yellow-300">$22,500+</span></div>
+                  <div>vs SmartyGrants: <span className="font-bold text-yellow-300">$12,312/year</span></div>
                 </div>
               </div>
             </div>
