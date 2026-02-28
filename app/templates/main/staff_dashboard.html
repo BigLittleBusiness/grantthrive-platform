@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% set title = "Staff Dashboard" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">Staff Dashboard</h1>
+                <div class="text-muted">
+                    Welcome back, {{ current_user.full_name }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.total_grants or 0 }}</h4>
+                            <p class="mb-0">Total Grants</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="bi bi-award fs-1"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.total_applications or 0 }}</h4>
+                            <p class="mb-0">Applications</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="bi bi-file-earmark-text fs-1"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.pending_reviews or 0 }}</h4>
+                            <p class="mb-0">Pending Reviews</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="bi bi-clock fs-1"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.active_grants or 0 }}</h4>
+                            <p class="mb-0">Active Grants</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="bi bi-graph-up fs-1"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Recent Grants -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Recent Grants</h5>
+                    <a href="{{ url_for('grants.list_grants') }}" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+                <div class="card-body">
+                    {% if recent_grants %}
+                        <div class="list-group list-group-flush">
+                            {% for grant in recent_grants %}
+                            <div class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold">{{ grant.title }}</div>
+                                    <small class="text-muted">{{ grant.category }}</small>
+                                </div>
+                                <span class="badge {{ grant.status|status_badge }} rounded-pill">
+                                    {{ grant.status|status_display }}
+                                </span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No grants created yet.</p>
+                        <a href="{{ url_for('grants.create_grant') }}" class="btn btn-primary btn-sm mt-2">
+                            <i class="bi bi-plus-circle"></i> Create First Grant
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Pending Reviews -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Pending Reviews</h5>
+                    <a href="{{ url_for('reviews.pending_reviews') }}" class="btn btn-sm btn-outline-warning">View All</a>
+                </div>
+                <div class="card-body">
+                    {% if pending_reviews %}
+                        <div class="list-group list-group-flush">
+                            {% for review in pending_reviews %}
+                            <div class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold">{{ review.application.organization_name }}</div>
+                                    <small class="text-muted">{{ review.application.grant.title }}</small>
+                                </div>
+                                <span class="badge bg-warning rounded-pill">
+                                    {{ (review.application.submitted_at|time_ago) if review.application.submitted_at else 'Draft' }}
+                                </span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No pending reviews.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <a href="{{ url_for('grants.create_grant') }}" class="btn btn-primary w-100">
+                                <i class="bi bi-plus-circle"></i><br>
+                                Create Grant
+                            </a>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <a href="{{ url_for('applications.list_applications') }}" class="btn btn-success w-100">
+                                <i class="bi bi-file-earmark-text"></i><br>
+                                View Applications
+                            </a>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <a href="{{ url_for('reviews.list_reviews') }}" class="btn btn-warning w-100">
+                                <i class="bi bi-clipboard-check"></i><br>
+                                Manage Reviews
+                            </a>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <a href="{{ url_for('reports.dashboard') }}" class="btn btn-info w-100">
+                                <i class="bi bi-graph-up"></i><br>
+                                View Reports
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Activity</h5>
+                </div>
+                <div class="card-body">
+                    {% if my_applications %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Organization</th>
+                                        <th>Grant Program</th>
+                                        <th>Amount Requested</th>
+                                        <th>Status</th>
+                                        <th>Submitted</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for application in my_applications %}
+                                    <tr>
+                                        <td>{{ application.organization_name }}</td>
+                                        <td>{{ application.grant.title }}</td>
+                                        <td>{{ application.amount_requested|currency }}</td>
+                                        <td>
+                                            <span class="badge {{ application.status|status_badge }}">
+                                                {{ application.status|status_display }}
+                                            </span>
+                                        </td>
+                                        <td>{{ application.submitted_at|datetime if application.submitted_at else 'Draft' }}</td>
+                                        <td>
+                                            <a href="{{ url_for('applications.view_application', id=application.id) }}" 
+                                               class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-eye"></i> View
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No recent applications to display.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-refresh dashboard every 5 minutes
+setTimeout(function() {
+    location.reload();
+}, 300000);
+
+// Add some interactivity
+document.addEventListener('DOMContentLoaded', function() {
+    // Highlight cards on hover
+    const cards = document.querySelectorAll('.card');
+    cards.forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-2px)';
+            this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+        });
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+            this.style.boxShadow = '';
+        });
+    });
+});
+</script>
+{% endblock %}

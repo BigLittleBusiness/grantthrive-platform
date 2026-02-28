@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header Section -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h2 mb-1">
+                        <i class="fas fa-vote-yea text-primary me-2"></i>
+                        Community Voting
+                    </h1>
+                    <p class="text-muted mb-0">Have your say on grant applications in your community</p>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-info fs-6">{{ voting_sessions|length }} Active Sessions</span>
+                </div>
+            </div>
+
+            <!-- Info Banner -->
+            <div class="alert alert-info border-0 mb-4">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h5 class="alert-heading mb-2">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Your Voice Matters
+                        </h5>
+                        <p class="mb-0">
+                            Community voting helps councils understand which projects matter most to residents. 
+                            Your votes influence funding decisions and help create stronger communities.
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                        <div class="d-flex flex-column">
+                            <small class="text-muted">Voting is:</small>
+                            <div class="mt-1">
+                                <span class="badge bg-success me-1">Free</span>
+                                <span class="badge bg-success me-1">Anonymous</span>
+                                <span class="badge bg-success">Secure</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if voting_sessions %}
+                <!-- Active Voting Sessions -->
+                <div class="row">
+                    {% for session in voting_sessions %}
+                    <div class="col-lg-6 col-xl-4 mb-4">
+                        <div class="card h-100 border-0 shadow-sm hover-shadow">
+                            <div class="card-header bg-white border-bottom-0 pb-0">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <h5 class="card-title mb-1">{{ session.title }}</h5>
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-circle me-1" style="font-size: 0.6em;"></i>
+                                        Open
+                                    </span>
+                                </div>
+                                <p class="text-muted small mb-0">{{ session.grant.title }}</p>
+                            </div>
+                            
+                            <div class="card-body">
+                                <p class="card-text text-muted mb-3">{{ session.description[:120] }}{% if session.description|length > 120 %}...{% endif %}</p>
+                                
+                                <!-- Voting Stats -->
+                                <div class="row text-center mb-3">
+                                    <div class="col-4">
+                                        <div class="border-end">
+                                            <div class="h5 mb-0 text-primary">{{ session.total_votes }}</div>
+                                            <small class="text-muted">Votes</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="border-end">
+                                            <div class="h5 mb-0 text-success">{{ session.total_voters }}</div>
+                                            <small class="text-muted">Voters</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="h5 mb-0 text-info">
+                                            {{ ((session.ends_at - session.starts_at).days) }}
+                                        </div>
+                                        <small class="text-muted">Days</small>
+                                    </div>
+                                </div>
+
+                                <!-- Voting Period -->
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <small class="text-muted">Voting Period</small>
+                                        <small class="text-muted">
+                                            {% set days_left = ((session.ends_at - moment.utcnow()).days) %}
+                                            {% if days_left > 0 %}
+                                                {{ days_left }} days left
+                                            {% else %}
+                                                Ending soon
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    <div class="progress" style="height: 4px;">
+                                        {% set total_days = (session.ends_at - session.starts_at).days %}
+                                        {% set elapsed_days = (moment.utcnow() - session.starts_at).days %}
+                                        {% set progress = (elapsed_days / total_days * 100) if total_days > 0 else 0 %}
+                                        <div class="progress-bar bg-primary" style="width: {{ progress }}%"></div>
+                                    </div>
+                                    <div class="d-flex justify-content-between mt-1">
+                                        <small class="text-muted">{{ session.starts_at.strftime('%b %d') }}</small>
+                                        <small class="text-muted">{{ session.ends_at.strftime('%b %d') }}</small>
+                                    </div>
+                                </div>
+
+                                <!-- Voting Type Info -->
+                                <div class="mb-3">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-star text-warning me-2"></i>
+                                        <span class="small text-muted">
+                                            {% if session.voting_type == 'rating' %}
+                                                Rate applications 1-{{ session.max_vote_value }} stars
+                                            {% elif session.voting_type == 'approval' %}
+                                                Approve or reject applications
+                                            {% elif session.voting_type == 'priority' %}
+                                                Rank applications by priority
+                                            {% endif %}
+                                        </span>
+                                    </div>
+                                    {% if session.allow_comments %}
+                                    <div class="d-flex align-items-center mt-1">
+                                        <i class="fas fa-comment text-info me-2"></i>
+                                        <span class="small text-muted">Comments welcome</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="card-footer bg-white border-top-0">
+                                <a href="{{ url_for('voting.voting_session', session_id=session.id) }}" 
+                                   class="btn btn-primary w-100">
+                                    <i class="fas fa-vote-yea me-2"></i>
+                                    Start Voting
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- How It Works Section -->
+                <div class="row mt-5">
+                    <div class="col-12">
+                        <h3 class="mb-4">How Community Voting Works</h3>
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <div class="text-center">
+                                    <div class="bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                        <i class="fas fa-search fa-lg"></i>
+                                    </div>
+                                    <h5>1. Browse Applications</h5>
+                                    <p class="text-muted small">Review grant applications and project details</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <div class="text-center">
+                                    <div class="bg-success text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                        <i class="fas fa-star fa-lg"></i>
+                                    </div>
+                                    <h5>2. Rate & Comment</h5>
+                                    <p class="text-muted small">Give your rating and share your thoughts</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <div class="text-center">
+                                    <div class="bg-info text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                        <i class="fas fa-chart-bar fa-lg"></i>
+                                    </div>
+                                    <h5>3. See Results</h5>
+                                    <p class="text-muted small">View community voting results and rankings</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <div class="text-center">
+                                    <div class="bg-warning text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                        <i class="fas fa-handshake fa-lg"></i>
+                                    </div>
+                                    <h5>4. Influence Decisions</h5>
+                                    <p class="text-muted small">Your votes help councils make funding decisions</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            {% else %}
+                <!-- No Active Sessions -->
+                <div class="text-center py-5">
+                    <div class="mb-4">
+                        <i class="fas fa-vote-yea text-muted" style="font-size: 4rem;"></i>
+                    </div>
+                    <h3 class="text-muted mb-3">No Active Voting Sessions</h3>
+                    <p class="text-muted mb-4">
+                        There are currently no open voting sessions. Check back soon for new opportunities to have your say on community grants.
+                    </p>
+                    <div class="row justify-content-center">
+                        <div class="col-md-6">
+                            <div class="alert alert-light">
+                                <h6 class="alert-heading">Want to stay informed?</h6>
+                                <p class="mb-0">Follow your local council's announcements or check back regularly for new voting opportunities.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+.hover-shadow {
+    transition: box-shadow 0.3s ease;
+}
+
+.hover-shadow:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.card-header {
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.progress-bar {
+    transition: width 0.3s ease;
+}
+
+.badge {
+    font-weight: 500;
+}
+</style>
+{% endblock %}

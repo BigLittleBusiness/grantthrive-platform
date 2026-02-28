@@ -1,0 +1,532 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Main Content -->
+        <div class="col-lg-8">
+            <!-- Session Header -->
+            <div class="d-flex justify-content-between align-items-start mb-4">
+                <div>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('voting.public_voting') }}">Community Voting</a>
+                            </li>
+                            <li class="breadcrumb-item active">{{ session.title }}</li>
+                        </ol>
+                    </nav>
+                    <h1 class="h2 mb-1">{{ session.title }}</h1>
+                    <p class="text-muted mb-0">{{ session.description }}</p>
+                </div>
+                <span class="badge bg-success fs-6">
+                    <i class="fas fa-circle me-1" style="font-size: 0.6em;"></i>
+                    Open for Voting
+                </span>
+            </div>
+
+            <!-- Voting Instructions -->
+            <div class="alert alert-info border-0 mb-4">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h6 class="alert-heading mb-2">
+                            <i class="fas fa-info-circle me-2"></i>
+                            How to Vote
+                        </h6>
+                        <p class="mb-0">
+                            {% if session.voting_type == 'rating' %}
+                                Rate each application from {{ session.min_vote_value }} to {{ session.max_vote_value }} stars based on merit, community impact, and feasibility.
+                            {% elif session.voting_type == 'approval' %}
+                                Vote to approve or reject each application based on your assessment.
+                            {% elif session.voting_type == 'priority' %}
+                                Rank applications by priority - which projects should be funded first?
+                            {% endif %}
+                            {% if session.allow_comments %}Your comments help explain your reasoning.{% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-md-end mt-2 mt-md-0">
+                        <div class="d-flex flex-column">
+                            <small class="text-muted">Voting ends:</small>
+                            <strong>{{ session.ends_at.strftime('%B %d, %Y at %I:%M %p') }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Applications for Voting -->
+            <div id="applications-container">
+                {% for application in applications %}
+                <div class="card mb-4 border-0 shadow-sm application-card" data-application-id="{{ application.id }}">
+                    <div class="card-header bg-white border-bottom">
+                        <div class="row align-items-center">
+                            <div class="col-md-8">
+                                <h5 class="card-title mb-1">{{ application.project_title }}</h5>
+                                <p class="text-muted mb-0">
+                                    <i class="fas fa-building me-1"></i>
+                                    {{ application.organization_name }}
+                                </p>
+                            </div>
+                            <div class="col-md-4 text-md-end mt-2 mt-md-0">
+                                <div class="d-flex flex-column">
+                                    <span class="h5 mb-0 text-primary">
+                                        ${{ "{:,.0f}".format(application.amount_requested) }}
+                                    </span>
+                                    <small class="text-muted">Requested</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-body">
+                        <!-- Project Description -->
+                        <div class="mb-3">
+                            <h6 class="text-muted mb-2">Project Description</h6>
+                            <p class="mb-0">{{ application.project_description[:300] }}{% if application.project_description|length > 300 %}...{% endif %}</p>
+                        </div>
+
+                        <!-- Project Details -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <h6 class="text-muted mb-2">Category</h6>
+                                <span class="badge bg-light text-dark">{{ application.grant.category }}</span>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-muted mb-2">Location</h6>
+                                <p class="mb-0">
+                                    <i class="fas fa-map-marker-alt text-danger me-1"></i>
+                                    {{ application.contact_address or 'Not specified' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Community Impact -->
+                        {% if application.community_impact %}
+                        <div class="mb-3">
+                            <h6 class="text-muted mb-2">Community Impact</h6>
+                            <p class="mb-0">{{ application.community_impact[:200] }}{% if application.community_impact|length > 200 %}...{% endif %}</p>
+                        </div>
+                        {% endif %}
+
+                        <!-- Voting Section -->
+                        <div class="border-top pt-3">
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <h6 class="mb-2">Your Vote</h6>
+                                    
+                                    {% if session.voting_type == 'rating' %}
+                                    <!-- Star Rating -->
+                                    <div class="star-rating mb-2" data-application-id="{{ application.id }}">
+                                        {% for i in range(1, session.max_vote_value + 1) %}
+                                        <i class="fas fa-star star" data-rating="{{ i }}" 
+                                           {% if application.id in user_votes and user_votes[application.id].vote_value >= i %}
+                                           style="color: #ffc107;"
+                                           {% else %}
+                                           style="color: #dee2e6;"
+                                           {% endif %}></i>
+                                        {% endfor %}
+                                    </div>
+                                    <small class="text-muted">Click stars to rate (1-{{ session.max_vote_value }})</small>
+                                    
+                                    {% elif session.voting_type == 'approval' %}
+                                    <!-- Approval Buttons -->
+                                    <div class="btn-group vote-buttons" data-application-id="{{ application.id }}">
+                                        <button type="button" class="btn btn-outline-success vote-btn" data-vote="1"
+                                                {% if application.id in user_votes and user_votes[application.id].vote_value == 1 %}
+                                                style="background-color: #198754; color: white;"
+                                                {% endif %}>
+                                            <i class="fas fa-thumbs-up me-1"></i>Approve
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger vote-btn" data-vote="0"
+                                                {% if application.id in user_votes and user_votes[application.id].vote_value == 0 %}
+                                                style="background-color: #dc3545; color: white;"
+                                                {% endif %}>
+                                            <i class="fas fa-thumbs-down me-1"></i>Reject
+                                        </button>
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="col-md-6">
+                                    {% if session.allow_comments %}
+                                    <h6 class="mb-2">Your Comment (Optional)</h6>
+                                    <textarea class="form-control vote-comment" 
+                                              data-application-id="{{ application.id }}"
+                                              rows="2" 
+                                              placeholder="Share your thoughts on this application...">{% if application.id in user_votes %}{{ user_votes[application.id].comments }}{% endif %}</textarea>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Vote Status -->
+                            <div class="mt-3">
+                                <div class="vote-status" data-application-id="{{ application.id }}">
+                                    {% if application.id in user_votes %}
+                                    <div class="alert alert-success py-2 mb-0">
+                                        <i class="fas fa-check-circle me-2"></i>
+                                        <strong>Vote submitted!</strong> 
+                                        You can change your vote anytime before voting closes.
+                                    </div>
+                                    {% else %}
+                                    <div class="alert alert-light py-2 mb-0">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        Click to vote on this application
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if not applications %}
+            <div class="text-center py-5">
+                <i class="fas fa-inbox text-muted mb-3" style="font-size: 3rem;"></i>
+                <h4 class="text-muted">No Applications Available</h4>
+                <p class="text-muted">There are no applications available for voting in this session yet.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <div class="sticky-top" style="top: 2rem;">
+                <!-- Voting Progress -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-pie me-2"></i>
+                            Your Voting Progress
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span>Applications Voted On</span>
+                            <span class="fw-bold">
+                                <span id="voted-count">{{ user_votes|length }}</span> / {{ applications|length }}
+                            </span>
+                        </div>
+                        <div class="progress mb-3" style="height: 8px;">
+                            <div class="progress-bar bg-primary" id="voting-progress" 
+                                 style="width: {{ (user_votes|length / applications|length * 100) if applications else 0 }}%"></div>
+                        </div>
+                        <small class="text-muted">
+                            {% if user_votes|length == applications|length %}
+                                <i class="fas fa-check-circle text-success me-1"></i>
+                                All applications voted on!
+                            {% else %}
+                                {{ applications|length - user_votes|length }} applications remaining
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Session Info -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Session Information
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <small class="text-muted d-block">Grant Program</small>
+                            <strong>{{ session.grant.title }}</strong>
+                        </div>
+                        <div class="mb-3">
+                            <small class="text-muted d-block">Voting Period</small>
+                            <div class="small">
+                                <strong>Started:</strong> {{ session.starts_at.strftime('%b %d, %Y') }}<br>
+                                <strong>Ends:</strong> {{ session.ends_at.strftime('%b %d, %Y') }}
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <small class="text-muted d-block">Community Participation</small>
+                            <div class="row text-center">
+                                <div class="col-6">
+                                    <div class="h5 mb-0 text-primary">{{ session.total_votes }}</div>
+                                    <small class="text-muted">Total Votes</small>
+                                </div>
+                                <div class="col-6">
+                                    <div class="h5 mb-0 text-success">{{ session.total_voters }}</div>
+                                    <small class="text-muted">Voters</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <small class="text-muted d-block">Voting Influence</small>
+                            <div class="d-flex align-items-center">
+                                <div class="progress flex-grow-1 me-2" style="height: 6px;">
+                                    <div class="progress-bar bg-warning" style="width: {{ session.voting_weight * 100 }}%"></div>
+                                </div>
+                                <small class="fw-bold">{{ (session.voting_weight * 100)|round|int }}%</small>
+                            </div>
+                            <small class="text-muted">Community votes influence final decisions</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">
+                            <i class="fas fa-bolt me-2"></i>
+                            Quick Actions
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary btn-sm" onclick="scrollToNextUnvoted()">
+                                <i class="fas fa-arrow-down me-2"></i>
+                                Next Unvoted Application
+                            </button>
+                            <button class="btn btn-outline-info btn-sm" onclick="showVotingResults()">
+                                <i class="fas fa-chart-bar me-2"></i>
+                                View Current Results
+                            </button>
+                            <a href="{{ url_for('voting.public_voting') }}" class="btn btn-outline-secondary btn-sm">
+                                <i class="fas fa-arrow-left me-2"></i>
+                                Back to All Sessions
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Voting Results Modal -->
+<div class="modal fade" id="resultsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-chart-bar me-2"></i>
+                    Current Voting Results
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="results-content">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Voting functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const sessionId = {{ session.id }};
+    
+    // Star rating functionality
+    document.querySelectorAll('.star-rating .star').forEach(star => {
+        star.addEventListener('click', function() {
+            const applicationId = this.closest('.star-rating').dataset.applicationId;
+            const rating = parseInt(this.dataset.rating);
+            submitVote(applicationId, rating);
+        });
+        
+        star.addEventListener('mouseenter', function() {
+            const rating = parseInt(this.dataset.rating);
+            const stars = this.closest('.star-rating').querySelectorAll('.star');
+            stars.forEach((s, index) => {
+                s.style.color = index < rating ? '#ffc107' : '#dee2e6';
+            });
+        });
+    });
+    
+    // Approval button functionality
+    document.querySelectorAll('.vote-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const applicationId = this.closest('.vote-buttons').dataset.applicationId;
+            const vote = parseInt(this.dataset.vote);
+            submitVote(applicationId, vote);
+        });
+    });
+    
+    // Comment auto-save
+    document.querySelectorAll('.vote-comment').forEach(textarea => {
+        let timeout;
+        textarea.addEventListener('input', function() {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                const applicationId = this.dataset.applicationId;
+                saveComment(applicationId, this.value);
+            }, 1000);
+        });
+    });
+});
+
+function submitVote(applicationId, voteValue) {
+    const commentElement = document.querySelector(`textarea[data-application-id="${applicationId}"]`);
+    const comments = commentElement ? commentElement.value : '';
+    
+    const data = {
+        application_id: applicationId,
+        voting_session_id: {{ session.id }},
+        vote_value: voteValue,
+        comments: comments
+    };
+    
+    fetch('/voting/api/vote', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateVoteStatus(applicationId, true);
+            updateVotingProgress();
+            showToast('Vote submitted successfully!', 'success');
+        } else {
+            showToast('Error submitting vote: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error submitting vote', 'error');
+    });
+}
+
+function updateVoteStatus(applicationId, voted) {
+    const statusElement = document.querySelector(`[data-application-id="${applicationId}"] .vote-status`);
+    if (voted) {
+        statusElement.innerHTML = `
+            <div class="alert alert-success py-2 mb-0">
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Vote submitted!</strong> 
+                You can change your vote anytime before voting closes.
+            </div>
+        `;
+    }
+}
+
+function updateVotingProgress() {
+    const votedCount = document.querySelectorAll('.vote-status .alert-success').length;
+    const totalCount = {{ applications|length }};
+    const percentage = (votedCount / totalCount) * 100;
+    
+    document.getElementById('voted-count').textContent = votedCount;
+    document.getElementById('voting-progress').style.width = percentage + '%';
+}
+
+function scrollToNextUnvoted() {
+    const unvotedCard = document.querySelector('.vote-status .alert-light');
+    if (unvotedCard) {
+        unvotedCard.closest('.application-card').scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+        });
+    } else {
+        showToast('All applications have been voted on!', 'info');
+    }
+}
+
+function showVotingResults() {
+    const modal = new bootstrap.Modal(document.getElementById('resultsModal'));
+    modal.show();
+    
+    fetch(`/voting/api/results/{{ session.id }}`)
+        .then(response => response.json())
+        .then(data => {
+            displayResults(data);
+        })
+        .catch(error => {
+            document.getElementById('results-content').innerHTML = 
+                '<div class="alert alert-danger">Error loading results</div>';
+        });
+}
+
+function displayResults(data) {
+    let html = '<div class="table-responsive">';
+    html += '<table class="table table-hover">';
+    html += '<thead><tr><th>Rank</th><th>Application</th><th>Avg Score</th><th>Total Votes</th></tr></thead>';
+    html += '<tbody>';
+    
+    data.results.sort((a, b) => b.average_score - a.average_score);
+    
+    data.results.forEach((result, index) => {
+        html += `<tr>
+            <td><span class="badge bg-primary">#${index + 1}</span></td>
+            <td>
+                <strong>${result.application_title}</strong><br>
+                <small class="text-muted">${result.organization}</small>
+            </td>
+            <td>
+                <div class="d-flex align-items-center">
+                    <span class="me-2">${result.average_score}</span>
+                    <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                        <div class="progress-bar bg-warning" style="width: ${(result.average_score / 5) * 100}%"></div>
+                    </div>
+                </div>
+            </td>
+            <td>${result.total_votes}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table></div>';
+    document.getElementById('results-content').innerHTML = html;
+}
+
+function showToast(message, type) {
+    // Simple toast notification
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type === 'error' ? 'danger' : type} position-fixed`;
+    toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    toast.innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'} me-2"></i>
+            ${message}
+        </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+</script>
+
+<style>
+.star-rating .star {
+    cursor: pointer;
+    font-size: 1.2rem;
+    margin-right: 0.2rem;
+    transition: color 0.2s ease;
+}
+
+.star-rating .star:hover {
+    transform: scale(1.1);
+}
+
+.vote-buttons .btn {
+    transition: all 0.2s ease;
+}
+
+.application-card {
+    transition: transform 0.2s ease;
+}
+
+.application-card:hover {
+    transform: translateY(-2px);
+}
+
+.sticky-top {
+    z-index: 1020;
+}
+
+.progress-bar {
+    transition: width 0.3s ease;
+}
+</style>
+{% endblock %}

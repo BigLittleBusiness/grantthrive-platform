@@ -1,0 +1,590 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header -->
+            <div class="mb-4">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item">
+                            <a href="{{ url_for('voting.admin_voting') }}">Voting Management</a>
+                        </li>
+                        <li class="breadcrumb-item active">{{ session.title }}</li>
+                    </ol>
+                </nav>
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h1 class="h2 mb-1">{{ session.title }}</h1>
+                        <p class="text-muted mb-0">{{ session.description }}</p>
+                    </div>
+                    <div class="text-end">
+                        {% if session.is_open %}
+                            <span class="badge bg-success fs-6 mb-2">
+                                <i class="fas fa-circle me-1" style="font-size: 0.6em;"></i>
+                                Open for Voting
+                            </span>
+                        {% elif session.is_published and not session.is_active %}
+                            <span class="badge bg-secondary fs-6 mb-2">
+                                <i class="fas fa-pause me-1"></i>
+                                Paused
+                            </span>
+                        {% elif session.is_published %}
+                            <span class="badge bg-info fs-6 mb-2">
+                                <i class="fas fa-clock me-1"></i>
+                                Scheduled
+                            </span>
+                        {% else %}
+                            <span class="badge bg-warning fs-6 mb-2">
+                                <i class="fas fa-edit me-1"></i>
+                                Draft
+                            </span>
+                        {% endif %}
+                        
+                        <div class="btn-group">
+                            {% if not session.is_published %}
+                            <button class="btn btn-success btn-sm" onclick="publishSession()">
+                                <i class="fas fa-eye me-1"></i>
+                                Publish
+                            </button>
+                            {% endif %}
+                            
+                            <button class="btn btn-{% if session.is_active %}warning{% else %}success{% endif %} btn-sm" onclick="toggleSession()">
+                                <i class="fas fa-{% if session.is_active %}pause{% else %}play{% endif %} me-1"></i>
+                                {% if session.is_active %}Pause{% else %}Activate{% endif %}
+                            </button>
+                            
+                            <a href="{{ url_for('voting.voting_session', session_id=session.id) }}" 
+                               class="btn btn-outline-primary btn-sm" target="_blank">
+                                <i class="fas fa-external-link-alt me-1"></i>
+                                View Public Page
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics Overview -->
+            <div class="row mb-4">
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-primary bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-vote-yea text-primary fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-primary">{{ analytics.total_votes }}</div>
+                                    <div class="text-muted small">Total Votes</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-success bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-users text-success fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-success">{{ analytics.total_voters }}</div>
+                                    <div class="text-muted small">Unique Voters</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-file-alt text-info fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-info">{{ analytics.applications_count }}</div>
+                                    <div class="text-muted small">Applications</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-warning bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-percentage text-warning fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-warning">{{ analytics.participation_rate }}%</div>
+                                    <div class="text-muted small">Participation Rate</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Main Content -->
+                <div class="col-lg-8">
+                    <!-- Session Details -->
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Session Details
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <h6 class="text-muted mb-1">Grant Program</h6>
+                                    <p class="mb-0">{{ session.grant.title }}</p>
+                                    <small class="text-muted">{{ session.grant.category }}</small>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <h6 class="text-muted mb-1">Voting Type</h6>
+                                    <p class="mb-0">
+                                        {% if session.voting_type == 'rating' %}
+                                            <i class="fas fa-star text-warning me-1"></i>
+                                            Star Rating ({{ session.min_vote_value }}-{{ session.max_vote_value }} stars)
+                                        {% elif session.voting_type == 'approval' %}
+                                            <i class="fas fa-thumbs-up text-success me-1"></i>
+                                            Approval Voting (Yes/No)
+                                        {% elif session.voting_type == 'priority' %}
+                                            <i class="fas fa-sort-numeric-up text-info me-1"></i>
+                                            Priority Ranking
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <h6 class="text-muted mb-1">Voting Period</h6>
+                                    <p class="mb-0">
+                                        <strong>Start:</strong> {{ session.starts_at.strftime('%B %d, %Y at %I:%M %p') }}<br>
+                                        <strong>End:</strong> {{ session.ends_at.strftime('%B %d, %Y at %I:%M %p') }}
+                                    </p>
+                                    {% if session.is_open %}
+                                    <small class="text-success">
+                                        <i class="fas fa-clock me-1"></i>
+                                        {{ ((session.ends_at - moment.utcnow()).days) }} days remaining
+                                    </small>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <h6 class="text-muted mb-1">Decision Influence</h6>
+                                    <div class="d-flex align-items-center">
+                                        <div class="progress flex-grow-1 me-2" style="height: 8px;">
+                                            <div class="progress-bar bg-primary" style="width: {{ session.voting_weight * 100 }}%"></div>
+                                        </div>
+                                        <strong>{{ (session.voting_weight * 100)|round|int }}%</strong>
+                                    </div>
+                                    <small class="text-muted">Community votes influence final decisions</small>
+                                </div>
+                                <div class="col-12">
+                                    <h6 class="text-muted mb-1">Options</h6>
+                                    <div class="d-flex gap-3">
+                                        <span class="badge bg-{% if session.allow_comments %}success{% else %}secondary{% endif %}">
+                                            <i class="fas fa-comment me-1"></i>
+                                            Comments {% if session.allow_comments %}Enabled{% else %}Disabled{% endif %}
+                                        </span>
+                                        <span class="badge bg-{% if session.require_registration %}warning{% else %}info{% endif %}">
+                                            <i class="fas fa-user me-1"></i>
+                                            {% if session.require_registration %}Registration Required{% else %}Open to All{% endif %}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Vote Distribution Chart -->
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0">
+                                <i class="fas fa-chart-pie me-2"></i>
+                                Vote Distribution
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            {% if analytics.vote_distribution %}
+                            <canvas id="voteDistributionChart" width="400" height="200"></canvas>
+                            {% else %}
+                            <div class="text-center py-4">
+                                <i class="fas fa-chart-pie text-muted mb-3" style="font-size: 3rem;"></i>
+                                <h5 class="text-muted">No Votes Yet</h5>
+                                <p class="text-muted">Vote distribution will appear here once voting begins</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Top Applications -->
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0">
+                                <i class="fas fa-trophy me-2"></i>
+                                Top Applications by Votes
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            {% if analytics.top_applications %}
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Rank</th>
+                                            <th>Application</th>
+                                            <th>Organization</th>
+                                            <th>Votes</th>
+                                            <th>Avg Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for app in analytics.top_applications %}
+                                        <tr>
+                                            <td>
+                                                <span class="badge bg-primary">#{{ loop.index }}</span>
+                                            </td>
+                                            <td>
+                                                <strong>{{ app.project_title }}</strong>
+                                            </td>
+                                            <td>{{ app.organization_name }}</td>
+                                            <td>
+                                                <span class="fw-bold text-primary">{{ app.vote_count }}</span>
+                                            </td>
+                                            <td>
+                                                <div class="d-flex align-items-center">
+                                                    <span class="me-2">{{ "%.1f"|format(app.avg_score) }}</span>
+                                                    <div class="progress" style="width: 60px; height: 6px;">
+                                                        <div class="progress-bar bg-warning" 
+                                                             style="width: {{ (app.avg_score / session.max_vote_value * 100) }}%"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4">
+                                <i class="fas fa-trophy text-muted mb-3" style="font-size: 3rem;"></i>
+                                <h5 class="text-muted">No Voting Data Yet</h5>
+                                <p class="text-muted">Application rankings will appear here once voting begins</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="col-lg-4">
+                    <!-- Quick Actions -->
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <i class="fas fa-bolt me-2"></i>
+                                Quick Actions
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-outline-primary btn-sm" onclick="exportResults()">
+                                    <i class="fas fa-download me-2"></i>
+                                    Export Results
+                                </button>
+                                <button class="btn btn-outline-info btn-sm" onclick="viewLiveResults()">
+                                    <i class="fas fa-chart-bar me-2"></i>
+                                    View Live Results
+                                </button>
+                                <button class="btn btn-outline-success btn-sm" onclick="sendReminder()">
+                                    <i class="fas fa-bell me-2"></i>
+                                    Send Voting Reminder
+                                </button>
+                                <a href="{{ url_for('voting.voting_session', session_id=session.id) }}" 
+                                   class="btn btn-outline-secondary btn-sm" target="_blank">
+                                    <i class="fas fa-external-link-alt me-2"></i>
+                                    Preview Public Page
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Session Timeline -->
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <i class="fas fa-clock me-2"></i>
+                                Session Timeline
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="timeline">
+                                <div class="timeline-item {% if session.created_at %}completed{% endif %}">
+                                    <div class="timeline-marker bg-success"></div>
+                                    <div class="timeline-content">
+                                        <h6 class="mb-1">Session Created</h6>
+                                        <small class="text-muted">{{ session.created_at.strftime('%b %d, %Y at %I:%M %p') }}</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="timeline-item {% if session.is_published %}completed{% endif %}">
+                                    <div class="timeline-marker bg-{% if session.is_published %}success{% else %}secondary{% endif %}"></div>
+                                    <div class="timeline-content">
+                                        <h6 class="mb-1">Published</h6>
+                                        <small class="text-muted">
+                                            {% if session.is_published %}
+                                                Visible to public
+                                            {% else %}
+                                                Not yet published
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="timeline-item {% if session.starts_at <= moment.utcnow() %}completed{% endif %}">
+                                    <div class="timeline-marker bg-{% if session.starts_at <= moment.utcnow() %}success{% else %}secondary{% endif %}"></div>
+                                    <div class="timeline-content">
+                                        <h6 class="mb-1">Voting Opens</h6>
+                                        <small class="text-muted">{{ session.starts_at.strftime('%b %d, %Y at %I:%M %p') }}</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="timeline-item {% if session.ends_at <= moment.utcnow() %}completed{% endif %}">
+                                    <div class="timeline-marker bg-{% if session.ends_at <= moment.utcnow() %}success{% else %}secondary{% endif %}"></div>
+                                    <div class="timeline-content">
+                                        <h6 class="mb-1">Voting Closes</h6>
+                                        <small class="text-muted">{{ session.ends_at.strftime('%b %d, %Y at %I:%M %p') }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings -->
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <i class="fas fa-cog me-2"></i>
+                                Session Settings
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label small text-muted">Session URL</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" 
+                                           value="{{ request.url_root }}voting/session/{{ session.id }}" 
+                                           id="sessionUrl" readonly>
+                                    <button class="btn btn-outline-secondary" onclick="copyUrl()">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label small text-muted">QR Code</label>
+                                <div class="text-center">
+                                    <div id="qrcode" class="mb-2"></div>
+                                    <button class="btn btn-outline-primary btn-sm" onclick="downloadQR()">
+                                        <i class="fas fa-download me-1"></i>
+                                        Download QR
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize vote distribution chart
+    {% if analytics.vote_distribution %}
+    const ctx = document.getElementById('voteDistributionChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: [
+                {% for rating, count in analytics.vote_distribution.items() %}
+                '{{ rating }} Star{{ "s" if rating|int != 1 else "" }}',
+                {% endfor %}
+            ],
+            datasets: [{
+                data: [
+                    {% for rating, count in analytics.vote_distribution.items() %}
+                    {{ count }},
+                    {% endfor %}
+                ],
+                backgroundColor: [
+                    '#dc3545', '#fd7e14', '#ffc107', '#28a745', '#20c997'
+                ],
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+    {% endif %}
+    
+    // Generate QR code
+    const qrUrl = '{{ request.url_root }}voting/session/{{ session.id }}';
+    QRCode.toCanvas(document.getElementById('qrcode'), qrUrl, {
+        width: 150,
+        margin: 2,
+        color: {
+            dark: '#000000',
+            light: '#ffffff'
+        }
+    });
+});
+
+function publishSession() {
+    if (confirm('Are you sure you want to publish this voting session? It will become visible to the public.')) {
+        fetch(`/voting/admin/session/{{ session.id }}/publish`, {
+            method: 'POST'
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Error publishing session');
+            }
+        });
+    }
+}
+
+function toggleSession() {
+    const action = {{ 'true' if session.is_active else 'false' }} ? 'pause' : 'activate';
+    if (confirm(`Are you sure you want to ${action} this voting session?`)) {
+        fetch(`/voting/admin/session/{{ session.id }}/toggle`, {
+            method: 'POST'
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert(`Error ${action}ing session`);
+            }
+        });
+    }
+}
+
+function copyUrl() {
+    const urlInput = document.getElementById('sessionUrl');
+    urlInput.select();
+    document.execCommand('copy');
+    
+    // Show feedback
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-check"></i>';
+    btn.classList.add('btn-success');
+    btn.classList.remove('btn-outline-secondary');
+    
+    setTimeout(() => {
+        btn.innerHTML = originalHtml;
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-secondary');
+    }, 2000);
+}
+
+function downloadQR() {
+    const canvas = document.querySelector('#qrcode canvas');
+    const link = document.createElement('a');
+    link.download = 'voting-session-qr.png';
+    link.href = canvas.toDataURL();
+    link.click();
+}
+
+function exportResults() {
+    window.open(`/voting/api/results/{{ session.id }}?format=csv`, '_blank');
+}
+
+function viewLiveResults() {
+    window.open(`/voting/api/results/{{ session.id }}`, '_blank');
+}
+
+function sendReminder() {
+    alert('Voting reminder feature coming soon!');
+}
+</script>
+
+<style>
+.timeline {
+    position: relative;
+    padding-left: 2rem;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #dee2e6;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 1.5rem;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -2rem;
+    top: 0.25rem;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 2px #dee2e6;
+}
+
+.timeline-item.completed .timeline-marker {
+    box-shadow: 0 0 0 2px #28a745;
+}
+
+.bg-opacity-10 {
+    background-color: rgba(var(--bs-primary-rgb), 0.1) !important;
+}
+
+.progress {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+#qrcode canvas {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+}
+</style>
+{% endblock %}

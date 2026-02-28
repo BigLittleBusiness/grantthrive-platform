@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <!-- Header -->
+            <div class="mb-4">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item">
+                            <a href="{{ url_for('voting.admin_voting') }}">Voting Management</a>
+                        </li>
+                        <li class="breadcrumb-item active">Create Voting Session</li>
+                    </ol>
+                </nav>
+                <h1 class="h2 mb-1">
+                    <i class="fas fa-plus-circle text-primary me-2"></i>
+                    Create Voting Session
+                </h1>
+                <p class="text-muted mb-0">Set up a new community voting session for grant applications</p>
+            </div>
+
+            <!-- Form -->
+            <form method="POST" id="votingSessionForm">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">
+                            <i class="fas fa-cog me-2"></i>
+                            Session Configuration
+                        </h5>
+                    </div>
+                    
+                    <div class="card-body">
+                        <!-- Basic Information -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">Basic Information</h6>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="grant_id" class="form-label">Grant Program <span class="text-danger">*</span></label>
+                                <select class="form-select" id="grant_id" name="grant_id" required>
+                                    <option value="">Select a grant program...</option>
+                                    {% for grant in grants %}
+                                    <option value="{{ grant.id }}" data-category="{{ grant.category }}">
+                                        {{ grant.title }} ({{ grant.category }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">Choose the grant program for community voting</div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="title" class="form-label">Session Title <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="title" name="title" required
+                                       placeholder="e.g., Community Choice Awards 2024">
+                                <div class="form-text">A clear, engaging title for the voting session</div>
+                            </div>
+                            
+                            <div class="col-12 mb-3">
+                                <label for="description" class="form-label">Description <span class="text-danger">*</span></label>
+                                <textarea class="form-control" id="description" name="description" rows="3" required
+                                          placeholder="Describe the purpose and goals of this voting session..."></textarea>
+                                <div class="form-text">Explain what community members will be voting on and why their input matters</div>
+                            </div>
+                        </div>
+
+                        <!-- Voting Configuration -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">Voting Configuration</h6>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
+                                <label for="voting_type" class="form-label">Voting Type <span class="text-danger">*</span></label>
+                                <select class="form-select" id="voting_type" name="voting_type" required>
+                                    <option value="rating">Star Rating (1-5 stars)</option>
+                                    <option value="approval">Approval (Yes/No)</option>
+                                    <option value="priority">Priority Ranking</option>
+                                </select>
+                                <div class="form-text">How community members will vote</div>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3" id="vote-range-section">
+                                <label for="min_vote_value" class="form-label">Vote Range</label>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <input type="number" class="form-control" id="min_vote_value" name="min_vote_value" 
+                                               value="1" min="1" max="5">
+                                        <div class="form-text">Min</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <input type="number" class="form-control" id="max_vote_value" name="max_vote_value" 
+                                               value="5" min="1" max="10">
+                                        <div class="form-text">Max</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
+                                <label for="voting_weight" class="form-label">Decision Influence</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="voting_weight" name="voting_weight" 
+                                           value="20" min="0" max="100" step="5">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                                <div class="form-text">How much community votes influence final decisions</div>
+                            </div>
+                        </div>
+
+                        <!-- Voting Period -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">Voting Period</h6>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="starts_at" class="form-label">Start Date & Time <span class="text-danger">*</span></label>
+                                <input type="datetime-local" class="form-control" id="starts_at" name="starts_at" required>
+                                <div class="form-text">When voting opens to the public</div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="ends_at" class="form-label">End Date & Time <span class="text-danger">*</span></label>
+                                <input type="datetime-local" class="form-control" id="ends_at" name="ends_at" required>
+                                <div class="form-text">When voting closes</div>
+                            </div>
+                            
+                            <div class="col-12">
+                                <div class="alert alert-info border-0">
+                                    <i class="fas fa-lightbulb me-2"></i>
+                                    <strong>Tip:</strong> Allow 7-14 days for optimal community participation. 
+                                    Consider local events and holidays when scheduling.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Options -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">Additional Options</h6>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="allow_comments" name="allow_comments" checked>
+                                    <label class="form-check-label" for="allow_comments">
+                                        Allow Comments
+                                    </label>
+                                </div>
+                                <div class="form-text">Let voters explain their reasoning</div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="require_registration" name="require_registration">
+                                    <label class="form-check-label" for="require_registration">
+                                        Require Registration
+                                    </label>
+                                </div>
+                                <div class="form-text">Only registered users can vote</div>
+                            </div>
+                        </div>
+
+                        <!-- Preview Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">Session Preview</h6>
+                                <div class="card bg-light border-0">
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-8">
+                                                <h6 class="card-title mb-1" id="preview-title">Session Title</h6>
+                                                <p class="text-muted small mb-2" id="preview-grant">Grant Program</p>
+                                                <p class="card-text small" id="preview-description">Session description will appear here...</p>
+                                            </div>
+                                            <div class="col-md-4 text-md-end">
+                                                <span class="badge bg-success">
+                                                    <i class="fas fa-circle me-1" style="font-size: 0.6em;"></i>
+                                                    Open
+                                                </span>
+                                                <div class="mt-2">
+                                                    <div class="small text-muted">Voting Type:</div>
+                                                    <strong id="preview-voting-type">Star Rating</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-footer bg-white border-top">
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('voting.admin_voting') }}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-2"></i>
+                                Cancel
+                            </a>
+                            <div>
+                                <button type="submit" class="btn btn-primary" name="action" value="save_draft">
+                                    <i class="fas fa-save me-2"></i>
+                                    Save as Draft
+                                </button>
+                                <button type="submit" class="btn btn-success ms-2" name="action" value="create_and_publish">
+                                    <i class="fas fa-rocket me-2"></i>
+                                    Create & Publish
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set default dates
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const twoWeeksLater = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    
+    document.getElementById('starts_at').value = tomorrow.toISOString().slice(0, 16);
+    document.getElementById('ends_at').value = twoWeeksLater.toISOString().slice(0, 16);
+    
+    // Update vote range based on voting type
+    document.getElementById('voting_type').addEventListener('change', function() {
+        const voteRangeSection = document.getElementById('vote-range-section');
+        const minVote = document.getElementById('min_vote_value');
+        const maxVote = document.getElementById('max_vote_value');
+        
+        if (this.value === 'rating') {
+            voteRangeSection.style.display = 'block';
+            minVote.value = 1;
+            maxVote.value = 5;
+        } else if (this.value === 'approval') {
+            voteRangeSection.style.display = 'none';
+            minVote.value = 0;
+            maxVote.value = 1;
+        } else if (this.value === 'priority') {
+            voteRangeSection.style.display = 'block';
+            minVote.value = 1;
+            maxVote.value = 10;
+        }
+        
+        updatePreview();
+    });
+    
+    // Live preview updates
+    function updatePreview() {
+        const title = document.getElementById('title').value || 'Session Title';
+        const grantSelect = document.getElementById('grant_id');
+        const grantText = grantSelect.options[grantSelect.selectedIndex]?.text || 'Grant Program';
+        const description = document.getElementById('description').value || 'Session description will appear here...';
+        const votingType = document.getElementById('voting_type');
+        const votingTypeText = votingType.options[votingType.selectedIndex]?.text || 'Star Rating';
+        
+        document.getElementById('preview-title').textContent = title;
+        document.getElementById('preview-grant').textContent = grantText;
+        document.getElementById('preview-description').textContent = description;
+        document.getElementById('preview-voting-type').textContent = votingTypeText;
+    }
+    
+    // Add event listeners for live preview
+    ['title', 'grant_id', 'description', 'voting_type'].forEach(id => {
+        document.getElementById(id).addEventListener('input', updatePreview);
+        document.getElementById(id).addEventListener('change', updatePreview);
+    });
+    
+    // Form validation
+    document.getElementById('votingSessionForm').addEventListener('submit', function(e) {
+        const startDate = new Date(document.getElementById('starts_at').value);
+        const endDate = new Date(document.getElementById('ends_at').value);
+        const now = new Date();
+        
+        if (startDate <= now) {
+            e.preventDefault();
+            alert('Start date must be in the future');
+            return false;
+        }
+        
+        if (endDate <= startDate) {
+            e.preventDefault();
+            alert('End date must be after start date');
+            return false;
+        }
+        
+        const duration = (endDate - startDate) / (1000 * 60 * 60 * 24);
+        if (duration < 1) {
+            e.preventDefault();
+            alert('Voting period must be at least 1 day');
+            return false;
+        }
+        
+        if (duration > 90) {
+            if (!confirm('Voting period is longer than 90 days. Are you sure you want to continue?')) {
+                e.preventDefault();
+                return false;
+            }
+        }
+    });
+    
+    // Initialize preview
+    updatePreview();
+});
+</script>
+
+<style>
+.form-check-input:checked {
+    background-color: var(--bs-primary);
+    border-color: var(--bs-primary);
+}
+
+.card-footer {
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.alert-info {
+    background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+    border: none;
+}
+
+.form-text {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.preview-card {
+    transition: all 0.3s ease;
+}
+
+#vote-range-section {
+    transition: opacity 0.3s ease;
+}
+</style>
+{% endblock %}

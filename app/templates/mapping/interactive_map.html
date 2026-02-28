@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+
+{% block title %}Interactive Grant Mapping - GrantThrive{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+    #map {
+        height: 600px;
+        width: 100%;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .map-controls {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+    }
+    
+    .grant-popup {
+        max-width: 300px;
+    }
+    
+    .grant-popup h6 {
+        color: #2c3e50;
+        margin-bottom: 10px;
+    }
+    
+    .grant-popup .badge {
+        font-size: 0.75em;
+    }
+    
+    .legend {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        margin-right: 10px;
+    }
+    
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .demographic-overlay {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h3 mb-0">Interactive Grant Mapping</h1>
+                    <p class="text-muted">Visualize grant distribution and community impact across your region</p>
+                </div>
+                <div>
+                    <button class="btn btn-outline-primary" onclick="exportMapData()">
+                        <i class="fas fa-download"></i> Export Data
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-lg-9">
+            <!-- Map Controls -->
+            <div class="map-controls">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label class="form-label">Grant Category</label>
+                        <select class="form-select" id="categoryFilter" onchange="filterGrants()">
+                            <option value="">All Categories</option>
+                            <option value="Community Development">Community Development</option>
+                            <option value="Infrastructure">Infrastructure</option>
+                            <option value="Environment">Environment</option>
+                            <option value="Arts & Culture">Arts & Culture</option>
+                            <option value="Sports & Recreation">Sports & Recreation</option>
+                            <option value="Education">Education</option>
+                            <option value="Health & Wellbeing">Health & Wellbeing</option>
+                            <option value="Economic Development">Economic Development</option>
+                            <option value="Youth Programs">Youth Programs</option>
+                            <option value="Seniors Programs">Seniors Programs</option>
+                            <option value="Emergency Services">Emergency Services</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Grant Status</label>
+                        <select class="form-select" id="statusFilter" onchange="filterGrants()">
+                            <option value="">All Status</option>
+                            <option value="open">Open</option>
+                            <option value="closed">Closed</option>
+                            <option value="draft">Draft</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Budget Range</label>
+                        <select class="form-select" id="budgetFilter" onchange="filterGrants()">
+                            <option value="">All Budgets</option>
+                            <option value="0-10000">$0 - $10,000</option>
+                            <option value="10000-50000">$10,000 - $50,000</option>
+                            <option value="50000-100000">$50,000 - $100,000</option>
+                            <option value="100000+">$100,000+</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">View Options</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showApplications" onchange="toggleApplications()">
+                            <label class="form-check-label" for="showApplications">
+                                Show Applications
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showDemographics" onchange="toggleDemographics()">
+                            <label class="form-check-label" for="showDemographics">
+                                Demographic Overlay
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Interactive Map -->
+            <div id="map"></div>
+        </div>
+        
+        <div class="col-lg-3">
+            <!-- Statistics -->
+            <div class="stats-card">
+                <h5><i class="fas fa-chart-bar"></i> Grant Distribution</h5>
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h3 id="totalGrants">{{ total_grants }}</h3>
+                        <small>Total Grants</small>
+                    </div>
+                    <div class="col-6">
+                        <h3 id="totalApplications">{{ total_applications }}</h3>
+                        <small>Applications</small>
+                    </div>
+                </div>
+                <hr style="border-color: rgba(255,255,255,0.3);">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h4>${{ total_budget|currency }}</h4>
+                        <small>Total Budget</small>
+                    </div>
+                    <div class="col-6">
+                        <h4>${{ total_requested|currency }}</h4>
+                        <small>Requested</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Legend -->
+            <div class="legend">
+                <h6><i class="fas fa-map-marker-alt"></i> Map Legend</h6>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #28a745;"></div>
+                    <span>Open Grants</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #ffc107;"></div>
+                    <span>Closing Soon</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #dc3545;"></div>
+                    <span>Closed Grants</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #6c757d;"></div>
+                    <span>Draft Grants</span>
+                </div>
+                <hr>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #007bff; opacity: 0.7;"></div>
+                    <span>Applications (when enabled)</span>
+                </div>
+            </div>
+            
+            <!-- Category Breakdown -->
+            <div class="demographic-overlay">
+                <h6><i class="fas fa-chart-pie"></i> Category Breakdown</h6>
+                <canvas id="categoryChart" width="250" height="200"></canvas>
+            </div>
+            
+            <!-- Regional Analysis -->
+            <div class="demographic-overlay">
+                <h6><i class="fas fa-map"></i> Regional Analysis</h6>
+                <div id="regionalStats">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Metropolitan</span>
+                        <span class="badge bg-primary">{{ metro_grants }} grants</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Regional</span>
+                        <span class="badge bg-success">{{ regional_grants }} grants</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Remote</span>
+                        <span class="badge bg-warning">{{ remote_grants }} grants</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Initialize map
+let map = L.map('map').setView([-25.2744, 133.7751], 6); // Australia center
+
+// Add tile layer
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+// Store markers and layers
+let grantMarkers = L.layerGroup().addTo(map);
+let applicationMarkers = L.layerGroup();
+let demographicLayer = null;
+
+// Grant data from backend
+let grantsData = {{ grants_data|tojsonfilter }};
+let applicationsData = {{ applications_data|tojsonfilter }};
+
+// Initialize map with grants
+function initializeMap() {
+    grantsData.forEach(grant => {
+        if (grant.latitude && grant.longitude) {
+            let color = getGrantColor(grant);
+            let marker = L.circleMarker([grant.latitude, grant.longitude], {
+                radius: Math.sqrt(grant.total_budget / 1000) + 5,
+                fillColor: color,
+                color: '#fff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            });
+            
+            let popupContent = `
+                <div class="grant-popup">
+                    <h6>${grant.title}</h6>
+                    <p class="mb-2">${grant.description.substring(0, 100)}...</p>
+                    <div class="mb-2">
+                        <span class="badge bg-primary">${grant.category}</span>
+                        <span class="badge bg-${getStatusBadgeColor(grant.status)}">${grant.status}</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong>Budget:</strong> $${grant.total_budget.toLocaleString()}<br>
+                        <strong>Applications:</strong> ${grant.application_count}
+                    </div>
+                    <a href="/grants/${grant.id}" class="btn btn-sm btn-outline-primary">View Details</a>
+                </div>
+            `;
+            
+            marker.bindPopup(popupContent);
+            grantMarkers.addLayer(marker);
+        }
+    });
+    
+    // Initialize applications layer
+    applicationsData.forEach(app => {
+        if (app.latitude && app.longitude) {
+            let marker = L.circleMarker([app.latitude, app.longitude], {
+                radius: 4,
+                fillColor: '#007bff',
+                color: '#fff',
+                weight: 1,
+                opacity: 0.7,
+                fillOpacity: 0.7
+            });
+            
+            let popupContent = `
+                <div class="grant-popup">
+                    <h6>${app.project_title}</h6>
+                    <p class="mb-2">${app.organization_name}</p>
+                    <div class="mb-2">
+                        <span class="badge bg-${getStatusBadgeColor(app.status)}">${app.status}</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong>Requested:</strong> $${app.amount_requested.toLocaleString()}
+                    </div>
+                </div>
+            `;
+            
+            marker.bindPopup(popupContent);
+            applicationMarkers.addLayer(marker);
+        }
+    });
+}
+
+// Get grant marker color based on status
+function getGrantColor(grant) {
+    switch(grant.status) {
+        case 'open': return '#28a745';
+        case 'closing_soon': return '#ffc107';
+        case 'closed': return '#dc3545';
+        default: return '#6c757d';
+    }
+}
+
+// Get status badge color
+function getStatusBadgeColor(status) {
+    switch(status) {
+        case 'open': return 'success';
+        case 'closed': return 'danger';
+        case 'draft': return 'secondary';
+        case 'approved': return 'success';
+        case 'rejected': return 'danger';
+        case 'under_review': return 'warning';
+        default: return 'primary';
+    }
+}
+
+// Filter grants based on controls
+function filterGrants() {
+    let category = document.getElementById('categoryFilter').value;
+    let status = document.getElementById('statusFilter').value;
+    let budget = document.getElementById('budgetFilter').value;
+    
+    grantMarkers.clearLayers();
+    
+    grantsData.forEach(grant => {
+        let showGrant = true;
+        
+        if (category && grant.category !== category) showGrant = false;
+        if (status && grant.status !== status) showGrant = false;
+        
+        if (budget) {
+            let [min, max] = budget.split('-').map(x => x.replace('+', ''));
+            min = parseInt(min);
+            max = max ? parseInt(max) : Infinity;
+            if (grant.total_budget < min || grant.total_budget > max) showGrant = false;
+        }
+        
+        if (showGrant && grant.latitude && grant.longitude) {
+            let color = getGrantColor(grant);
+            let marker = L.circleMarker([grant.latitude, grant.longitude], {
+                radius: Math.sqrt(grant.total_budget / 1000) + 5,
+                fillColor: color,
+                color: '#fff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            });
+            
+            let popupContent = `
+                <div class="grant-popup">
+                    <h6>${grant.title}</h6>
+                    <p class="mb-2">${grant.description.substring(0, 100)}...</p>
+                    <div class="mb-2">
+                        <span class="badge bg-primary">${grant.category}</span>
+                        <span class="badge bg-${getStatusBadgeColor(grant.status)}">${grant.status}</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong>Budget:</strong> $${grant.total_budget.toLocaleString()}<br>
+                        <strong>Applications:</strong> ${grant.application_count}
+                    </div>
+                    <a href="/grants/${grant.id}" class="btn btn-sm btn-outline-primary">View Details</a>
+                </div>
+            `;
+            
+            marker.bindPopup(popupContent);
+            grantMarkers.addLayer(marker);
+        }
+    });
+}
+
+// Toggle applications layer
+function toggleApplications() {
+    if (document.getElementById('showApplications').checked) {
+        map.addLayer(applicationMarkers);
+    } else {
+        map.removeLayer(applicationMarkers);
+    }
+}
+
+// Toggle demographic overlay
+function toggleDemographics() {
+    if (document.getElementById('showDemographics').checked) {
+        // Add demographic overlay (placeholder for now)
+        if (!demographicLayer) {
+            demographicLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                opacity: 0.3
+            });
+        }
+        map.addLayer(demographicLayer);
+    } else {
+        if (demographicLayer) {
+            map.removeLayer(demographicLayer);
+        }
+    }
+}
+
+// Export map data
+function exportMapData() {
+    let data = {
+        grants: grantsData,
+        applications: applicationsData,
+        timestamp: new Date().toISOString()
+    };
+    
+    let blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement('a');
+    a.href = url;
+    a.download = 'grant_mapping_data.json';
+    a.click();
+}
+
+// Initialize category chart
+function initializeCategoryChart() {
+    let ctx = document.getElementById('categoryChart').getContext('2d');
+    
+    // Count grants by category
+    let categoryCounts = {};
+    grantsData.forEach(grant => {
+        categoryCounts[grant.category] = (categoryCounts[grant.category] || 0) + 1;
+    });
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(categoryCounts),
+            datasets: [{
+                data: Object.values(categoryCounts),
+                backgroundColor: [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                    '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
+                    '#4BC0C0', '#FF6384', '#36A2EB'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+// Initialize everything when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initializeMap();
+    initializeCategoryChart();
+});
+</script>
+{% endblock %}

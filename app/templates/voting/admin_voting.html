@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header Section -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h2 mb-1">
+                        <i class="fas fa-vote-yea text-primary me-2"></i>
+                        Voting Management
+                    </h1>
+                    <p class="text-muted mb-0">Manage community voting sessions and analyze participation</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('voting.create_voting_session') }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>
+                        Create Voting Session
+                    </a>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="row mb-4">
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-primary bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-poll text-primary fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-primary">{{ stats.total_sessions }}</div>
+                                    <div class="text-muted small">Total Sessions</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-success bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-play-circle text-success fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-success">{{ stats.active_sessions }}</div>
+                                    <div class="text-muted small">Active Sessions</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-vote-yea text-info fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-info">{{ stats.total_votes }}</div>
+                                    <div class="text-muted small">Total Votes</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-warning bg-opacity-10 rounded-3 p-3">
+                                        <i class="fas fa-users text-warning fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="h4 mb-0 text-warning">{{ stats.total_voters }}</div>
+                                    <div class="text-muted small">Community Voters</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Voting Sessions Table -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h5 class="mb-0">
+                                <i class="fas fa-list me-2"></i>
+                                Voting Sessions
+                            </h5>
+                        </div>
+                        <div class="col-auto">
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" placeholder="Search sessions..." id="searchSessions">
+                                <button class="btn btn-outline-secondary" type="button">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-body p-0">
+                    {% if sessions %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Session</th>
+                                    <th>Grant Program</th>
+                                    <th>Status</th>
+                                    <th>Period</th>
+                                    <th>Participation</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for session in sessions %}
+                                <tr class="session-row" data-session-id="{{ session.id }}">
+                                    <td>
+                                        <div>
+                                            <strong>{{ session.title }}</strong>
+                                            <div class="text-muted small">{{ session.description[:60] }}{% if session.description|length > 60 %}...{% endif %}</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div>
+                                            <span class="fw-medium">{{ session.grant.title }}</span>
+                                            <div class="text-muted small">{{ session.grant.category }}</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if session.is_open %}
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-circle me-1" style="font-size: 0.6em;"></i>
+                                                Open
+                                            </span>
+                                        {% elif session.is_published and not session.is_active %}
+                                            <span class="badge bg-secondary">
+                                                <i class="fas fa-pause me-1"></i>
+                                                Paused
+                                            </span>
+                                        {% elif session.is_published %}
+                                            <span class="badge bg-info">
+                                                <i class="fas fa-clock me-1"></i>
+                                                Scheduled
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-warning">
+                                                <i class="fas fa-edit me-1"></i>
+                                                Draft
+                                            </span>
+                                        {% endif %}
+                                        
+                                        {% if session.voting_weight > 0 %}
+                                        <div class="mt-1">
+                                            <small class="text-muted">{{ (session.voting_weight * 100)|round|int }}% influence</small>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="small">
+                                            <div><strong>Start:</strong> {{ session.starts_at.strftime('%b %d, %Y') }}</div>
+                                            <div><strong>End:</strong> {{ session.ends_at.strftime('%b %d, %Y') }}</div>
+                                        </div>
+                                        {% if session.is_open %}
+                                        <div class="mt-1">
+                                            {% set days_left = ((session.ends_at - moment.utcnow()).days) %}
+                                            <small class="text-{% if days_left <= 1 %}danger{% elif days_left <= 3 %}warning{% else %}success{% endif %}">
+                                                {{ days_left }} days left
+                                            </small>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="me-3">
+                                                <div class="fw-medium text-primary">{{ session.total_votes }}</div>
+                                                <small class="text-muted">votes</small>
+                                            </div>
+                                            <div>
+                                                <div class="fw-medium text-success">{{ session.total_voters }}</div>
+                                                <small class="text-muted">voters</small>
+                                            </div>
+                                        </div>
+                                        {% if session.total_votes > 0 %}
+                                        <div class="mt-1">
+                                            <div class="progress" style="height: 4px;">
+                                                {% set participation_rate = (session.total_voters / 100 * 100) if session.total_voters else 0 %}
+                                                <div class="progress-bar bg-success" style="width: {{ [participation_rate, 100]|min }}%"></div>
+                                            </div>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{{ url_for('voting.manage_voting_session', session_id=session.id) }}" 
+                                               class="btn btn-outline-primary" title="Manage Session">
+                                                <i class="fas fa-cog"></i>
+                                            </a>
+                                            
+                                            {% if not session.is_published %}
+                                            <button class="btn btn-outline-success publish-btn" 
+                                                    data-session-id="{{ session.id }}" title="Publish Session">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            {% endif %}
+                                            
+                                            <button class="btn btn-outline-{% if session.is_active %}warning{% else %}success{% endif %} toggle-btn" 
+                                                    data-session-id="{{ session.id }}" 
+                                                    title="{% if session.is_active %}Pause{% else %}Activate{% endif %} Session">
+                                                <i class="fas fa-{% if session.is_active %}pause{% else %}play{% endif %}"></i>
+                                            </button>
+                                            
+                                            <a href="{{ url_for('voting.voting_session', session_id=session.id) }}" 
+                                               class="btn btn-outline-info" title="View Public Page" target="_blank">
+                                                <i class="fas fa-external-link-alt"></i>
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <div class="mb-4">
+                            <i class="fas fa-vote-yea text-muted" style="font-size: 4rem;"></i>
+                        </div>
+                        <h4 class="text-muted mb-3">No Voting Sessions Yet</h4>
+                        <p class="text-muted mb-4">
+                            Create your first community voting session to engage residents in the grant decision process.
+                        </p>
+                        <a href="{{ url_for('voting.create_voting_session') }}" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>
+                            Create First Voting Session
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Quick Stats Section -->
+            {% if sessions %}
+            <div class="row mt-4">
+                <div class="col-lg-6">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <i class="fas fa-chart-line me-2"></i>
+                                Recent Activity
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="list-group list-group-flush">
+                                {% for session in sessions[:5] %}
+                                <div class="list-group-item border-0 px-0">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h6 class="mb-1">{{ session.title }}</h6>
+                                            <p class="mb-1 text-muted small">{{ session.grant.title }}</p>
+                                            <small class="text-muted">
+                                                {% if session.is_open %}
+                                                    Active • {{ session.total_votes }} votes
+                                                {% else %}
+                                                    Created {{ session.created_at.strftime('%b %d') }}
+                                                {% endif %}
+                                            </small>
+                                        </div>
+                                        <span class="badge bg-{% if session.is_open %}success{% elif session.is_published %}info{% else %}warning{% endif %}">
+                                            {% if session.is_open %}Open{% elif session.is_published %}Scheduled{% else %}Draft{% endif %}
+                                        </span>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-6">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <i class="fas fa-lightbulb me-2"></i>
+                                Best Practices
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="list-group list-group-flush">
+                                <div class="list-group-item border-0 px-0">
+                                    <div class="d-flex">
+                                        <i class="fas fa-check-circle text-success me-3 mt-1"></i>
+                                        <div>
+                                            <h6 class="mb-1">Optimal Voting Period</h6>
+                                            <small class="text-muted">Allow 7-14 days for maximum community participation</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="list-group-item border-0 px-0">
+                                    <div class="d-flex">
+                                        <i class="fas fa-check-circle text-success me-3 mt-1"></i>
+                                        <div>
+                                            <h6 class="mb-1">Clear Instructions</h6>
+                                            <small class="text-muted">Provide clear voting criteria and guidelines</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="list-group-item border-0 px-0">
+                                    <div class="d-flex">
+                                        <i class="fas fa-check-circle text-success me-3 mt-1"></i>
+                                        <div>
+                                            <h6 class="mb-1">Community Promotion</h6>
+                                            <small class="text-muted">Promote voting sessions through multiple channels</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="list-group-item border-0 px-0">
+                                    <div class="d-flex">
+                                        <i class="fas fa-check-circle text-success me-3 mt-1"></i>
+                                        <div>
+                                            <h6 class="mb-1">Results Transparency</h6>
+                                            <small class="text-muted">Share voting results and explain how they influenced decisions</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Search functionality
+    const searchInput = document.getElementById('searchSessions');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const rows = document.querySelectorAll('.session-row');
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(searchTerm) ? '' : 'none';
+            });
+        });
+    }
+    
+    // Publish session functionality
+    document.querySelectorAll('.publish-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sessionId = this.dataset.sessionId;
+            
+            if (confirm('Are you sure you want to publish this voting session? It will become visible to the public.')) {
+                fetch(`/voting/admin/session/${sessionId}/publish`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        location.reload();
+                    } else {
+                        alert('Error publishing session');
+                    }
+                })
+                .catch(error => {
+                    alert('Error publishing session');
+                });
+            }
+        });
+    });
+    
+    // Toggle session functionality
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sessionId = this.dataset.sessionId;
+            const isActive = this.querySelector('i').classList.contains('fa-pause');
+            const action = isActive ? 'pause' : 'activate';
+            
+            if (confirm(`Are you sure you want to ${action} this voting session?`)) {
+                fetch(`/voting/admin/session/${sessionId}/toggle`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        location.reload();
+                    } else {
+                        alert(`Error ${action}ing session`);
+                    }
+                })
+                .catch(error => {
+                    alert(`Error ${action}ing session`);
+                });
+            }
+        });
+    });
+});
+</script>
+
+<style>
+.hover-shadow {
+    transition: box-shadow 0.3s ease;
+}
+
+.hover-shadow:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.btn-group-sm .btn {
+    padding: 0.25rem 0.5rem;
+}
+
+.progress {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.list-group-item:last-child {
+    border-bottom: none !important;
+}
+
+.bg-opacity-10 {
+    background-color: rgba(var(--bs-primary-rgb), 0.1) !important;
+}
+</style>
+{% endblock %}
