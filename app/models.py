@@ -102,7 +102,7 @@ class Grant(db.Model):
     def generate_qr_code(self):
         """Generate QR code for the grant"""
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr_data = f"https://grantthrive.com.au/grants/{self.id}"
+        qr_data = f"https://app.grantthrive.com/grants/{self.id}"
         qr.add_data(qr_data)
         qr.make(fit=True)
         
@@ -194,7 +194,7 @@ class Application(db.Model):
     # Relationships
     reviews = db.relationship('Review', backref='application', lazy='dynamic', cascade='all, delete-orphan')
     documents = db.relationship('ApplicationDocument', backref='application', lazy='dynamic', cascade='all, delete-orphan')
-    votes = db.relationship('CommunityVote', backref='application', lazy='dynamic', cascade='all, delete-orphan')
+    votes = db.relationship('CommunityVote', back_populates='application', lazy='dynamic', cascade='all, delete-orphan')
     
     def calculate_scores(self):
         """Calculate total and average scores from reviews"""
@@ -314,7 +314,7 @@ class CommunityVote(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    application = db.relationship('Application', backref='community_votes')
+    application = db.relationship('Application', back_populates='votes')
     voter = db.relationship('User', backref='community_votes')
     
     def __repr__(self):

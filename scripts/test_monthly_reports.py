@@ -55,7 +55,7 @@ test_app.config.update(
     MAIL_USE_TLS=False,
     MAIL_USERNAME=None,
     MAIL_PASSWORD=None,
-    MAIL_DEFAULT_SENDER="noreply@grantthrive.com.au",
+    MAIL_DEFAULT_SENDER="noreply@grantthrive.com",
     MAIL_SUPPRESS_SEND=True,
     WTF_CSRF_ENABLED=False,
 )

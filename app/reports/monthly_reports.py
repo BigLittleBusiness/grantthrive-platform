@@ -103,12 +103,12 @@ def _send_report_email(admin_user, report_path, year, month):
         f"your GrantThrive administrator.\n\n"
         f"Kind regards,\n"
         f"GrantThrive Platform\n"
-        f"https://grantthrive.com.au"
+        f"https://grantthrive.com"
     )
 
     msg = Message(
         subject=subject,
-        sender=current_app.config.get("MAIL_DEFAULT_SENDER", "noreply@grantthrive.com.au"),
+        sender=current_app.config.get("MAIL_DEFAULT_SENDER", "noreply@grantthrive.com"),
         recipients=[admin_user.email],
     )
     msg.body = body_text
