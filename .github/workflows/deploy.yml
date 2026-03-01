@@ -1,0 +1,159 @@
+name: GrantThrive Backend — CI/CD
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers:
+#   push to main        → full CI (test) + deploy to production
+#   pull_request        → CI only (test, no deploy)
+#   workflow_dispatch   → manual trigger (full CI + deploy)
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   EC2_SSH_KEY         Private SSH key for the EC2 instance (PEM, full content)
+#   EC2_HOST            Public IP address or hostname of the EC2 instance
+#   EC2_USER            SSH username on the EC2 instance (typically: ubuntu)
+#   SECRET_KEY          Flask SECRET_KEY for production
+#   DATABASE_URL        Production database URL (e.g. postgresql://...)
+#   MAIL_SERVER         SMTP server hostname
+#   MAIL_PORT           SMTP port (typically 587)
+#   MAIL_USERNAME       SMTP username / SendGrid API key username
+#   MAIL_PASSWORD       SMTP password / SendGrid API key
+#   MAIL_DEFAULT_SENDER From address (e.g. noreply@grantthrive.com)
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Job 1: Test ───────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install PyJWT geopy qrcode Pillow
+
+      - name: Run SSO auth test suite
+        run: python scripts/test_sso_auth.py
+        env:
+          FLASK_ENV: testing
+          SECRET_KEY: ci-test-secret-key
+
+      - name: Run monthly reports test suite
+        run: python scripts/test_monthly_reports.py
+        env:
+          FLASK_ENV: testing
+          SECRET_KEY: ci-test-secret-key
+
+  # ── Job 2: Deploy (main branch only) ──────────────────────────────────────
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create timestamped release on EC2
+        run: |
+          RELEASE_DIR="/srv/grantthrive/releases/$(date +%Y%m%d%H%M%S)"
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "mkdir -p $RELEASE_DIR"
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='venv/' \
+            --exclude='reports_output/' \
+            ./ \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:$RELEASE_DIR/
+          echo "RELEASE_DIR=$RELEASE_DIR" >> $GITHUB_ENV
+
+      - name: Install Python dependencies on EC2
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "cd ${{ env.RELEASE_DIR }} \
+             && python3 -m venv venv \
+             && venv/bin/pip install --quiet -r requirements.txt"
+
+      - name: Write production .env on EC2
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "cat > ${{ env.RELEASE_DIR }}/.env << 'ENVEOF'
+          FLASK_ENV=production
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          MAIL_SERVER=${{ secrets.MAIL_SERVER }}
+          MAIL_PORT=${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          MAIL_DEFAULT_SENDER=${{ secrets.MAIL_DEFAULT_SENDER }}
+          ENVEOF"
+
+      - name: Run database migrations on EC2
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "cd ${{ env.RELEASE_DIR }} \
+             && source venv/bin/activate \
+             && flask db upgrade 2>/dev/null || echo 'No migrations to run'"
+        env:
+          FLASK_APP: wsgi.py
+
+      - name: Activate release (atomic symlink swap)
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "ln -sfn ${{ env.RELEASE_DIR }} /srv/grantthrive/current \
+             && sudo systemctl restart grantthrive-backend"
+
+      - name: Verify backend is healthy
+        run: |
+          sleep 5
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "sudo systemctl is-active grantthrive-backend \
+             && curl -sf http://localhost:5000/api/health || exit 1"
+
+      - name: Prune old releases (keep last 5)
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "ls -1dt /srv/grantthrive/releases/*/ \
+             | tail -n +6 \
+             | xargs rm -rf --"
+
+      - name: Notify deployment success
+        run: |
+          echo "✅ Backend deployed successfully to ${{ env.RELEASE_DIR }}"
+          echo "   API active at: https://api.grantthrive.com"

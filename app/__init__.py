@@ -96,6 +96,9 @@ def create_app(config_class=Config):
     from app.api import bp as api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
 
+    from app.api.health import health_bp
+    app.register_blueprint(health_bp, url_prefix='/api')
+
     # Register template filters
     from app.utils import register_template_filters
     register_template_filters(app)
