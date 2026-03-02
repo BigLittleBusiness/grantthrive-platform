@@ -23,6 +23,8 @@ from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_mail import Mail
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from config.config import Config
 
 # ── Extension singletons ──────────────────────────────────────────────────────
@@ -30,6 +32,11 @@ db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
 mail = Mail()
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[],          # No global limit — apply per-route only
+    storage_uri="memory://",    # Use Redis URI in production: "redis://..."
+)
 
 
 def create_app(config_class=Config):
@@ -56,13 +63,12 @@ def create_app(config_class=Config):
                 "Set a strong random SECRET_KEY environment variable before "
                 "starting the application in production."
             )
-
-    # ── Extensions ────────────────────────────────────────────────────────────
+    # ── Extensions ──────────────────────────────────────────────────────────────
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     mail.init_app(app)
-
+    limiter.init_app(app)
     # ── CORS ──────────────────────────────────────────────────────────────────
     # All five UI apps are served from subdomains of grantthrive.com and share
     # the same JWT-based SSO session.  In development, localhost ports are also

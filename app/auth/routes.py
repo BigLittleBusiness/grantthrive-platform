@@ -23,7 +23,7 @@ from functools import wraps
 from flask import request, jsonify, current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app import db
+from app import db, limiter
 from app.auth import bp
 from app.models import User
 
@@ -130,6 +130,10 @@ def _write_audit_log(user_id: int, action: str, details: str | None) -> None:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @bp.route("/login", methods=["POST"])
+@limiter.limit(
+    "10 per 15 minutes",
+    error_message="Too many login attempts from this IP. Please try again in 15 minutes.",
+)
 def login():
     """
     Authenticate a user with email and password.
