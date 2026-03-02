@@ -4,10 +4,18 @@ GrantThrive — Authentication Routes
 Provides JWT-based authentication endpoints consumed by all GrantThrive UI apps
 via the shared @grantthrive/auth library.
 
+Multi-tenancy
+-------------
+The JWT payload now includes ``council_id`` and ``council_subdomain`` so that
+every frontend app can identify the tenant without an extra API call.
+
+  system_admin users have council_id = null in the JWT (they span all tenants).
+  All other roles have council_id = <their council's id>.
+
 Endpoints:
   POST /auth/login          — Email + password login; returns JWT + user profile
   POST /auth/logout         — Invalidate token (client-side; server logs the event)
-  POST /auth/register       — New user registration (requires admin approval)
+  POST /auth/register       — New user registration (scoped to current tenant)
   POST /auth/verify-token   — Validate a JWT and return the current user profile
   POST /auth/demo-login     — Demo login for development/testing environments
   POST /auth/change-password — Change authenticated user's password
@@ -20,50 +28,76 @@ import logging
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-from flask import request, jsonify, current_app
+from flask import request, jsonify, current_app, g
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import db, limiter
 from app.auth import bp
-from app.models import User
+from app.models import User, Council
 
 logger = logging.getLogger(__name__)
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
 
-JWT_ALGORITHM  = "HS256"
+JWT_ALGORITHM   = "HS256"
 JWT_EXPIRY_DAYS = 7
 
 
-def _generate_token(user):
-    """Issue a signed JWT for the given user."""
+def _generate_token(user: User) -> str:
+    """Issue a signed JWT for the given user, embedding council context."""
+    council_id        = user.council_id
+    council_subdomain = None
+    if council_id:
+        council = db.session.get(Council, council_id)
+        if council:
+            council_subdomain = council.subdomain
+
     payload = {
-        "sub":   str(user.id),
-        "email": user.email,
-        "role":  user.role,
-        "iat":   datetime.now(timezone.utc),
-        "exp":   datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRY_DAYS),
+        "sub":               str(user.id),
+        "email":             user.email,
+        "role":              user.role,
+        "council_id":        council_id,
+        "council_subdomain": council_subdomain,
+        "iat":               datetime.now(timezone.utc),
+        "exp":               datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRY_DAYS),
     }
     return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm=JWT_ALGORITHM)
 
 
-def _decode_token(token):
+def _decode_token(token: str) -> dict:
     """Decode and validate a JWT. Returns the payload dict or raises."""
     return jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=[JWT_ALGORITHM])
 
 
-def _user_to_dict(user):
+def _user_to_dict(user: User) -> dict:
     """Serialise a User record to a safe dict for API responses."""
+    council_data = None
+    if user.council_id:
+        council = db.session.get(Council, user.council_id)
+        if council:
+            council_data = {
+                'id':               council.id,
+                'name':             council.name,
+                'subdomain':        council.subdomain,
+                'slug':             council.slug,
+                'logo_url':         council.logo_url,
+                'primary_colour':   council.primary_colour,
+                'secondary_colour': council.secondary_colour,
+                'portal_url':       council.portal_url(),
+            }
+
     return {
-        "id":         user.id,
-        "email":      user.email,
-        "first_name": user.first_name,
-        "last_name":  user.last_name,
-        "full_name":  f"{user.first_name} {user.last_name}",
-        "role":       user.role,
-        "is_active":  user.is_active,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "last_login": user.last_login.isoformat() if user.last_login else None,
+        "id":          user.id,
+        "email":       user.email,
+        "first_name":  user.first_name,
+        "last_name":   user.last_name,
+        "full_name":   f"{user.first_name} {user.last_name}",
+        "role":        user.role,
+        "council_id":  user.council_id,
+        "council":     council_data,
+        "is_active":   user.is_active,
+        "created_at":  user.created_at.isoformat() if user.created_at else None,
+        "last_login":  user.last_login.isoformat() if user.last_login else None,
     }
 
 
@@ -105,21 +139,23 @@ def role_required(*roles):
 
 # ── Audit logging helper ─────────────────────────────────────────────────────
 
-def _write_audit_log(user_id: int, action: str, details: str | None) -> None:
+def _write_audit_log(user_id: int, action: str, details: str | None,
+                     council_id: int | None = None) -> None:
     """Write a row to the audit_logs table. Silently swallows errors."""
     from app.models import AuditLog
     try:
         forwarded = request.environ.get("HTTP_X_FORWARDED_FOR")
         ip = forwarded.split(",")[0].strip() if forwarded else request.environ.get("REMOTE_ADDR", "unknown")
         log = AuditLog(
-            user_id=user_id,
-            action=action,
-            entity_type="auth",
-            entity_id=user_id,
-            new_values=details,
-            ip_address=ip,
-            user_agent=request.headers.get("User-Agent", ""),
-            created_at=datetime.now(timezone.utc),
+            user_id     = user_id,
+            council_id  = council_id,
+            action      = action,
+            entity_type = "auth",
+            entity_id   = user_id,
+            new_values  = details,
+            ip_address  = ip,
+            user_agent  = request.headers.get("User-Agent", ""),
+            created_at  = datetime.now(timezone.utc),
         )
         db.session.add(log)
         db.session.commit()
@@ -138,13 +174,17 @@ def login():
     """
     Authenticate a user with email and password.
 
+    Multi-tenancy: when a tenant subdomain is resolved (g.council is set),
+    the login is scoped to that council — a user from a different council
+    cannot log in via another council's subdomain.
+
     Request body:
         { "email": "...", "password": "..." }
 
     Response (200):
-        { "token": "<jwt>", "user": { ... } }
+        { "token": "<jwt>", "user": { ..., "council": { ... } } }
     """
-    data = request.get_json(silent=True) or {}
+    data     = request.get_json(silent=True) or {}
     email    = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
 
@@ -160,13 +200,25 @@ def login():
     if not user.is_active:
         return jsonify({"error": "Your account is pending approval or has been suspended."}), 403
 
-    # Update last login timestamp
+    # Tenant scope check: if a council subdomain was resolved for this request,
+    # ensure the user belongs to that council (system_admin is exempt).
+    current_council = getattr(g, 'council', None)
+    if current_council and user.role != 'system_admin':
+        if user.council_id != current_council.id:
+            logger.warning(
+                "Cross-tenant login attempt: user_id=%d (council_id=%s) "
+                "tried to log in via subdomain=%s (council_id=%d)",
+                user.id, user.council_id, current_council.subdomain, current_council.id,
+            )
+            return jsonify({"error": "Invalid email or password."}), 401
+
     user.last_login = datetime.now(timezone.utc)
     db.session.commit()
 
     token = _generate_token(user)
-    logger.info("Successful login: user_id=%d role=%s", user.id, user.role)
-    _write_audit_log(user.id, "login", f"role={user.role}")
+    logger.info("Successful login: user_id=%d role=%s council_id=%s",
+                user.id, user.role, user.council_id)
+    _write_audit_log(user.id, "login", f"role={user.role}", council_id=user.council_id)
 
     return jsonify({
         "token": token,
@@ -188,9 +240,10 @@ def logout():
         token = auth_header.split(" ", 1)[1]
         try:
             payload = _decode_token(token)
-            user_id = int(payload.get("sub", 0))
+            user_id    = int(payload.get("sub", 0))
+            council_id = payload.get("council_id")
             logger.info("Logout: user_id=%s", user_id)
-            _write_audit_log(user_id, "logout", None)
+            _write_audit_log(user_id, "logout", None, council_id=council_id)
         except jwt.InvalidTokenError:
             pass  # Token already invalid — that is fine
     return jsonify({"message": "Logged out successfully."}), 200
@@ -200,6 +253,11 @@ def logout():
 def register():
     """
     Register a new user account.
+
+    Multi-tenancy: registration is scoped to the current council tenant
+    (resolved from the subdomain).  If no tenant is resolved, the user is
+    registered as a community_member without a council (for the public-facing
+    marketing site flow).
 
     New accounts are created with is_active=False and require admin approval
     before the user can log in.
@@ -211,14 +269,13 @@ def register():
           "role": "community_member"   (optional, default: community_member)
         }
     """
-    data = request.get_json(silent=True) or {}
+    data       = request.get_json(silent=True) or {}
     email      = (data.get("email") or "").strip().lower()
     password   = data.get("password") or ""
     first_name = (data.get("first_name") or "").strip()
     last_name  = (data.get("last_name") or "").strip()
     role       = data.get("role", "community_member")
 
-    # Validate required fields
     if not all([email, password, first_name, last_name]):
         return jsonify({"error": "Email, password, first name, and last name are required."}), 400
 
@@ -233,6 +290,10 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "An account with this email already exists."}), 409
 
+    # Resolve council from the current request context
+    current_council = getattr(g, 'council', None)
+    council_id = current_council.id if current_council else None
+
     # Generate a unique username from email
     base_username = email.split("@")[0]
     username = base_username
@@ -242,23 +303,27 @@ def register():
         counter += 1
 
     user = User(
-        username=username,
-        email=email,
-        password_hash=generate_password_hash(password),
-        first_name=first_name,
-        last_name=last_name,
-        role=role,
-        is_active=False,  # Requires admin approval
+        username   = username,
+        email      = email,
+        first_name = first_name,
+        last_name  = last_name,
+        role       = role,
+        council_id = council_id,
+        is_active  = False,  # Requires admin approval
     )
+    user.set_password(password)
     db.session.add(user)
     db.session.commit()
 
-    logger.info("New registration: user_id=%d email=%s role=%s (pending approval)", user.id, email, role)
-    _write_audit_log(user.id, "register", f"email={email} role={role}")
+    logger.info(
+        "New registration: user_id=%d email=%s role=%s council_id=%s (pending approval)",
+        user.id, email, role, council_id,
+    )
+    _write_audit_log(user.id, "register", f"email={email} role={role}", council_id=council_id)
 
     return jsonify({
-        "message": "Registration successful. Your account is pending approval.",
-        "user": _user_to_dict(user),
+        "message":          "Registration successful. Your account is pending approval.",
+        "user":             _user_to_dict(user),
         "requires_approval": True,
     }), 201
 
@@ -266,24 +331,20 @@ def register():
 @bp.route("/verify-token", methods=["POST"])
 def verify_token():
     """
-    Validate a JWT and return the current user profile.
+    Validate a JWT and return the current user profile (including council context).
 
     Used by all GrantThrive apps on load to confirm the stored token is still
-    valid and to refresh the user profile (e.g. if role changed).
+    valid and to refresh the user profile (e.g. if role or council changed).
 
     Request body:
         { "token": "<jwt>" }
 
     Response (200):
-        { "valid": true, "user": { ... } }
-
-    Response (401):
-        { "valid": false, "error": "..." }
+        { "valid": true, "user": { ..., "council": { ... } } }
     """
     data  = request.get_json(silent=True) or {}
     token = data.get("token") or ""
 
-    # Also accept token from Authorization header
     auth_header = request.headers.get("Authorization", "")
     if not token and auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1]
@@ -311,8 +372,7 @@ def verify_token():
 @bp.route("/demo-login", methods=["POST"])
 def demo_login():
     """
-    Demo login for development and testing environments.
-
+    Demo login for development/testing environments.
     Only available when FLASK_ENV != 'production'.
 
     Request body:
@@ -327,56 +387,75 @@ def demo_login():
     data      = request.get_json(silent=True) or {}
     demo_type = data.get("demo_type", "council_admin")
 
+    # Ensure a demo council exists for council-scoped demo users
+    demo_council = Council.query.filter_by(subdomain='demo').first()
+    if not demo_council:
+        demo_council = Council(
+            name            = 'Demo Council',
+            subdomain       = 'demo',
+            slug            = 'demo-council',
+            state           = 'VIC',
+            plan            = 'professional',
+            is_active       = True,
+            contact_email   = 'demo@grantthrive.com',
+        )
+        db.session.add(demo_council)
+        db.session.flush()
+
     demo_users = {
         "council_admin": {
-            "email": "demo.admin@melbourne.vic.gov.au",
+            "email":      "demo.admin@melbourne.vic.gov.au",
             "first_name": "Demo",
-            "last_name": "Council Admin",
-            "role": "council_admin",
+            "last_name":  "Council Admin",
+            "role":       "council_admin",
+            "council_id": demo_council.id,
         },
         "council_staff": {
-            "email": "demo.staff@melbourne.vic.gov.au",
+            "email":      "demo.staff@melbourne.vic.gov.au",
             "first_name": "Demo",
-            "last_name": "Council Staff",
-            "role": "council_staff",
+            "last_name":  "Council Staff",
+            "role":       "council_staff",
+            "council_id": demo_council.id,
         },
         "community_member": {
-            "email": "demo.community@example.com",
+            "email":      "demo.community@example.com",
             "first_name": "Demo",
-            "last_name": "Community Member",
-            "role": "community_member",
+            "last_name":  "Community Member",
+            "role":       "community_member",
+            "council_id": demo_council.id,
         },
         "professional_consultant": {
-            "email": "demo.consultant@grantsuccess.com",
+            "email":      "demo.consultant@grantsuccess.com",
             "first_name": "Demo",
-            "last_name": "Consultant",
-            "role": "professional_consultant",
+            "last_name":  "Consultant",
+            "role":       "professional_consultant",
+            "council_id": None,
         },
         "system_admin": {
-            "email": "demo.sysadmin@grantthrive.com",
+            "email":      "demo.sysadmin@grantthrive.com",
             "first_name": "Demo",
-            "last_name": "System Admin",
-            "role": "system_admin",
+            "last_name":  "System Admin",
+            "role":       "system_admin",
+            "council_id": None,
         },
     }
 
     profile = demo_users.get(demo_type, demo_users["council_admin"])
 
-    # Find or create the demo user
     user = User.query.filter_by(email=profile["email"]).first()
     if not user:
         base_username = profile["email"].split("@")[0].replace(".", "_")
         user = User(
-            username=base_username,
-            email=profile["email"],
-            password_hash=generate_password_hash("demo_password_not_for_production"),
-            first_name=profile["first_name"],
-            last_name=profile["last_name"],
-            role=profile["role"],
-            is_active=True,
+            username   = base_username,
+            email      = profile["email"],
+            first_name = profile["first_name"],
+            last_name  = profile["last_name"],
+            role       = profile["role"],
+            council_id = profile["council_id"],
+            is_active  = True,
         )
+        user.set_password("demo_password_not_for_production")
         db.session.add(user)
-        db.session.commit()
 
     user.last_login = datetime.now(timezone.utc)
     db.session.commit()
@@ -414,5 +493,6 @@ def change_password(current_user):
     db.session.commit()
 
     logger.info("Password changed: user_id=%d", current_user.id)
-    _write_audit_log(current_user.id, "password_changed", None)
+    _write_audit_log(current_user.id, "password_changed", None,
+                     council_id=current_user.council_id)
     return jsonify({"message": "Password changed successfully."}), 200
