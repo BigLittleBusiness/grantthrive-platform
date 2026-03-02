@@ -21,7 +21,7 @@ class User(UserMixin, db.Model):
     phone = db.Column(db.String(20))
     role = db.Column(db.String(20), nullable=False, default='staff')  # admin, staff, community
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login = db.Column(db.DateTime)
     
     # Relationships
@@ -89,8 +89,8 @@ class Grant(db.Model):
     
     # Metadata
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # QR Code
     qr_code_data = db.Column(db.Text)  # Base64 encoded QR code image
@@ -117,7 +117,7 @@ class Grant(db.Model):
     @property
     def is_open(self):
         """Check if grant is currently open for applications"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return (self.status == 'open' and 
                 self.is_published and 
                 self.opens_at <= now <= self.closes_at)
@@ -127,7 +127,7 @@ class Grant(db.Model):
         """Calculate days remaining until close"""
         if not self.is_open:
             return 0
-        delta = self.closes_at - datetime.utcnow()
+        delta = self.closes_at - datetime.now(timezone.utc)
         return max(0, delta.days)
     
     def __repr__(self):
@@ -188,8 +188,8 @@ class Application(db.Model):
     community_score = db.Column(db.Float, default=0.0)
     
     # Metadata
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     reviews = db.relationship('Review', backref='application', lazy='dynamic', cascade='all, delete-orphan')
@@ -226,7 +226,7 @@ class ApplicationDocument(db.Model):
     original_filename = db.Column(db.String(255), nullable=False)
     file_size = db.Column(db.Integer)
     mime_type = db.Column(db.String(100))
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     
     def __repr__(self):
         return f'<ApplicationDocument {self.original_filename}>'
@@ -249,8 +249,8 @@ class Review(db.Model):
     comments = db.Column(db.Text)
     
     # Metadata
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     scores = db.relationship('ReviewScore', backref='review', lazy='dynamic', cascade='all, delete-orphan')
@@ -310,8 +310,8 @@ class CommunityVote(db.Model):
     flagged_reason = db.Column(db.String(200))
     
     # Metadata
-    voted_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    voted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     application = db.relationship('Application', back_populates='votes')
@@ -355,9 +355,9 @@ class VotingSession(db.Model):
     voting_weight = db.Column(db.Float, default=0.2)  # 0.0-1.0, how much community votes influence final decision
     
     # Metadata
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     grant = db.relationship('Grant', backref='voting_sessions')
@@ -370,13 +370,13 @@ class VotingSession(db.Model):
     @property
     def is_open(self):
         """Check if voting session is currently open"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return self.is_active and self.starts_at <= now <= self.ends_at
     
     @property
     def status(self):
         """Get current status of voting session"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if not self.is_published:
             return 'draft'
         elif now < self.starts_at:
@@ -417,7 +417,7 @@ class VotingResult(db.Model):
     engagement_score = db.Column(db.Float, default=0.0)  # Based on votes, comments, and interaction
     
     # Metadata
-    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     application = db.relationship('Application', backref='voting_results')
@@ -463,7 +463,7 @@ class AuditLog(db.Model):
     new_values = db.Column(db.Text)  # JSON
     ip_address = db.Column(db.String(45))
     user_agent = db.Column(db.String(500))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = db.relationship('User', backref='audit_logs')

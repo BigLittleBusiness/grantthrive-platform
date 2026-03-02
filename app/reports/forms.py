@@ -9,10 +9,10 @@ class ReportFilterForm(FlaskForm):
     grant_id = SelectField('Grant Program', validators=[Optional()], coerce=int)
     
     date_from = DateField('From Date', validators=[Optional()], 
-                         default=lambda: datetime.utcnow() - timedelta(days=365))
+                         default=lambda: datetime.now(timezone.utc) - timedelta(days=365))
     
     date_to = DateField('To Date', validators=[Optional()], 
-                       default=lambda: datetime.utcnow())
+                       default=lambda: datetime.now(timezone.utc))
     
     status = SelectField('Status', validators=[Optional()], choices=[
         ('', 'All Statuses'),

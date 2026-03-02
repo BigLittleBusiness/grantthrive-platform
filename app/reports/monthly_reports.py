@@ -40,7 +40,7 @@ def _get_report_period():
     Return (year, month) for the previous calendar month relative to today.
     Running on the 1st of the month means 'today - 1 day' gives the previous month.
     """
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
     first_of_current = today.replace(day=1)
     last_of_previous = first_of_current - timedelta(days=1)
     return last_of_previous.year, last_of_previous.month
@@ -98,7 +98,7 @@ def _send_report_email(admin_user, report_path, year, month):
         f"  5. Cost Savings & Efficiency\n"
         f"  6. Review & Assessment Activity\n\n"
         f"This report was generated automatically by the GrantThrive platform on "
-        f"{datetime.utcnow().strftime('%d %B %Y at %H:%M UTC')}.\n\n"
+        f"{datetime.now(timezone.utc).strftime('%d %B %Y at %H:%M UTC')}.\n\n"
         f"If you have any questions about the data in this report, please contact "
         f"your GrantThrive administrator.\n\n"
         f"Kind regards,\n"
@@ -140,7 +140,7 @@ def _log_result(results, output_dir=None):
     output_dir : str | None   Override the log output directory (for testing).
     """
     run_summary = {
-        "run_at":   datetime.utcnow().isoformat(),
+        "run_at":   datetime.now(timezone.utc).isoformat(),
         "total":    len(results),
         "success":  sum(1 for r in results if r["status"] == STATUS_SUCCESS),
         "skipped":  sum(1 for r in results if r["status"] == STATUS_SKIPPED),
@@ -156,7 +156,7 @@ def _log_result(results, output_dir=None):
         log_dir = output_dir
 
     os.makedirs(log_dir, exist_ok=True)
-    log_filename = f"monthly_reports_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    log_filename = f"monthly_reports_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
     log_path     = os.path.join(log_dir, log_filename)
 
     with open(log_path, "w") as f:
@@ -225,7 +225,7 @@ def run_monthly_reports(output_dir="/tmp", log_dir=None, dry_run=False):
             "status":     None,
             "report_path": None,
             "error":      None,
-            "timestamp":  datetime.utcnow().isoformat(),
+            "timestamp":  datetime.now(timezone.utc).isoformat(),
         }
 
         try:

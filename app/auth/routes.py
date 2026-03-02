@@ -82,7 +82,7 @@ def token_required(f):
         except jwt.InvalidTokenError:
             return jsonify({"error": "Invalid token."}), 401
 
-        user = User.query.get(int(payload["sub"]))
+        user = db.session.get(User, int(payload["sub"]))
         if not user or not user.is_active:
             return jsonify({"error": "User account not found or inactive."}), 401
 
@@ -101,6 +101,30 @@ def role_required(*roles):
             return f(current_user, *args, **kwargs)
         return decorated
     return decorator
+
+
+# ── Audit logging helper ─────────────────────────────────────────────────────
+
+def _write_audit_log(user_id: int, action: str, details: str | None) -> None:
+    """Write a row to the audit_logs table. Silently swallows errors."""
+    from app.models import AuditLog
+    try:
+        forwarded = request.environ.get("HTTP_X_FORWARDED_FOR")
+        ip = forwarded.split(",")[0].strip() if forwarded else request.environ.get("REMOTE_ADDR", "unknown")
+        log = AuditLog(
+            user_id=user_id,
+            action=action,
+            entity_type="auth",
+            entity_id=user_id,
+            new_values=details,
+            ip_address=ip,
+            user_agent=request.headers.get("User-Agent", ""),
+            created_at=datetime.now(timezone.utc),
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception as exc:
+        logger.warning("Failed to write audit log for action '%s': %s", action, exc)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -133,11 +157,12 @@ def login():
         return jsonify({"error": "Your account is pending approval or has been suspended."}), 403
 
     # Update last login timestamp
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc)
     db.session.commit()
 
     token = _generate_token(user)
     logger.info("Successful login: user_id=%d role=%s", user.id, user.role)
+    _write_audit_log(user.id, "login", f"role={user.role}")
 
     return jsonify({
         "token": token,
@@ -159,7 +184,9 @@ def logout():
         token = auth_header.split(" ", 1)[1]
         try:
             payload = _decode_token(token)
-            logger.info("Logout: user_id=%s", payload.get("sub"))
+            user_id = int(payload.get("sub", 0))
+            logger.info("Logout: user_id=%s", user_id)
+            _write_audit_log(user_id, "logout", None)
         except jwt.InvalidTokenError:
             pass  # Token already invalid — that is fine
     return jsonify({"message": "Logged out successfully."}), 200
@@ -223,6 +250,7 @@ def register():
     db.session.commit()
 
     logger.info("New registration: user_id=%d email=%s role=%s (pending approval)", user.id, email, role)
+    _write_audit_log(user.id, "register", f"email={email} role={role}")
 
     return jsonify({
         "message": "Registration successful. Your account is pending approval.",
@@ -266,7 +294,7 @@ def verify_token():
     except jwt.InvalidTokenError:
         return jsonify({"valid": False, "error": "Invalid token."}), 401
 
-    user = User.query.get(int(payload["sub"]))
+    user = db.session.get(User, int(payload["sub"]))
     if not user or not user.is_active:
         return jsonify({"valid": False, "error": "User not found or inactive."}), 401
 
@@ -346,7 +374,7 @@ def demo_login():
         db.session.add(user)
         db.session.commit()
 
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc)
     db.session.commit()
 
     token = _generate_token(user)
@@ -382,4 +410,5 @@ def change_password(current_user):
     db.session.commit()
 
     logger.info("Password changed: user_id=%d", current_user.id)
+    _write_audit_log(current_user.id, "password_changed", None)
     return jsonify({"message": "Password changed successfully."}), 200

@@ -71,7 +71,7 @@ class VotingSessionForm(FlaskForm):
         if field.data == 0:
             raise ValidationError('Please select a grant program.')
         
-        grant = Grant.query.get(field.data)
+        grant = db.session.get(Grant, field.data)
         if not grant:
             raise ValidationError('Selected grant program does not exist.')
         
@@ -80,7 +80,7 @@ class VotingSessionForm(FlaskForm):
     
     def validate_starts_at(self, field):
         """Validate that start date is in the future"""
-        if field.data and field.data <= datetime.utcnow():
+        if field.data and field.data <= datetime.now(timezone.utc):
             raise ValidationError('Start date must be in the future.')
     
     def validate_ends_at(self, field):
@@ -263,5 +263,5 @@ class VotingReminderForm(FlaskForm):
     
     def validate_schedule_time(self, field):
         """Validate that scheduled time is in the future"""
-        if field.data and field.data <= datetime.utcnow():
+        if field.data and field.data <= datetime.now(timezone.utc):
             raise ValidationError('Scheduled time must be in the future.')

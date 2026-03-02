@@ -108,16 +108,16 @@ def approve_application(application_id):
         # Update application status
         if decision == 'approve':
             application.status = 'approved'
-            application.approved_at = datetime.utcnow()
+            application.approved_at = datetime.now(timezone.utc)
             application.approved_by = current_user.id
             application.amount_approved = amount_approved or application.amount_requested
         elif decision == 'reject':
             application.status = 'rejected'
-            application.rejected_at = datetime.utcnow()
+            application.rejected_at = datetime.now(timezone.utc)
             application.rejected_by = current_user.id
         elif decision == 'return':
             application.status = 'returned'
-            application.updated_at = datetime.utcnow()
+            application.updated_at = datetime.now(timezone.utc)
         
         # Add staff notes
         if notes:

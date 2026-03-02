@@ -16,8 +16,8 @@ def public_voting():
     active_sessions = VotingSession.query.filter(
         VotingSession.is_published == True,
         VotingSession.is_active == True,
-        VotingSession.starts_at <= datetime.utcnow(),
-        VotingSession.ends_at >= datetime.utcnow()
+        VotingSession.starts_at <= datetime.now(timezone.utc),
+        VotingSession.ends_at >= datetime.now(timezone.utc)
     ).all()
     
     return render_template('voting/public_voting.html', 
@@ -71,7 +71,7 @@ def submit_vote():
     comments = data.get('comments', '')
     
     # Get voting session and validate
-    session = VotingSession.query.get(session_id)
+    session = db.session.get(VotingSession, session_id)
     if not session or not session.is_open:
         log_vote_attempt(current_user.id if current_user.is_authenticated else None, 
                         application_id, session_id, False, "Session not open")
@@ -84,7 +84,7 @@ def submit_vote():
         return jsonify({'error': 'Invalid vote value'}), 400
     
     # Get application and validate
-    application = Application.query.get(application_id)
+    application = db.session.get(Application, application_id)
     if not application or application.grant_id != session.grant_id:
         log_vote_attempt(current_user.id if current_user.is_authenticated else None, 
                         application_id, session_id, False, "Invalid application")
@@ -138,7 +138,7 @@ def submit_vote():
             # Update existing vote
             existing_vote.vote_value = vote_value
             existing_vote.comments = comments
-            existing_vote.updated_at = datetime.utcnow()
+            existing_vote.updated_at = datetime.now(timezone.utc)
             existing_vote.user_agent = user_agent
             existing_vote.fingerprint = fingerprint
             vote_id = existing_vote.id
@@ -263,7 +263,7 @@ def create_voting_session():
         data = request.form
         
         # Get the grant
-        grant = Grant.query.get(data['grant_id'])
+        grant = db.session.get(Grant, data['grant_id'])
         if not grant:
             flash('Invalid grant selected.', 'error')
             return redirect(url_for('voting.create_voting_session'))
@@ -398,7 +398,7 @@ def update_voting_results(application_id, session_id):
     result.votes_5_star = score_counts[5]
     result.total_comments = total_comments
     result.engagement_score = engagement_score
-    result.last_updated = datetime.utcnow()
+    result.last_updated = datetime.now(timezone.utc)
     
     db.session.commit()
     
@@ -422,7 +422,7 @@ def update_session_rankings(session_id):
 
 def get_session_analytics(session_id):
     """Get comprehensive analytics for a voting session"""
-    session = VotingSession.query.get(session_id)
+    session = db.session.get(VotingSession, session_id)
     
     # Basic stats
     total_votes = CommunityVote.query.filter(

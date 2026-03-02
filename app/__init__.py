@@ -1,3 +1,22 @@
+"""
+GrantThrive — Application Factory
+====================================
+Creates and configures the Flask application instance.
+
+Blueprint layout:
+  /auth/*        — JWT authentication (login, register, verify-token, etc.)
+  /              — Main routes (homepage, dashboard, public grant listing)
+  /reports/*     — Report generation and download
+  /workflows/*   — Grant workflow management (pending approvals, etc.)
+  /voting/*      — Community voting on grant applications
+  /mapping/*     — Interactive grant geographic mapping
+  /public/*      — Public transparency dashboard and API
+  /api/health    — Health-check endpoint for CI/CD and load-balancer probes
+
+Blueprints for grants, applications, reviews, and admin are intentionally
+omitted until those features are built.  They will be added here when ready.
+"""
+
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -6,36 +25,58 @@ from flask_mail import Mail
 from flask_cors import CORS
 from config.config import Config
 
-# Initialize extensions
+# ── Extension singletons ──────────────────────────────────────────────────────
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
 mail = Mail()
 
+
 def create_app(config_class=Config):
-    """Create and configure Flask application"""
+    """Create and configure the Flask application.
+
+    Args:
+        config_class: A configuration class from ``config.config``.
+                      Defaults to :class:`config.config.Config`.
+
+    Returns:
+        A fully configured :class:`flask.Flask` application instance.
+    """
     app = Flask(__name__)
     app.config.from_object(config_class)
 
-    # Initialize extensions with app
+    # ── Security check: refuse to start in production with default secret ──
+    if (
+        app.config.get("ENV") == "production"
+        or app.config.get("FLASK_ENV") == "production"
+    ):
+        if app.config.get("SECRET_KEY") == "change-me-in-production":
+            raise RuntimeError(
+                "FATAL: SECRET_KEY has not been set.  "
+                "Set a strong random SECRET_KEY environment variable before "
+                "starting the application in production."
+            )
+
+    # ── Extensions ────────────────────────────────────────────────────────────
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     mail.init_app(app)
 
-    # ── CORS: allow all GrantThrive subdomains (grantthrive.com) ─────────────
+    # ── CORS ──────────────────────────────────────────────────────────────────
     # All five UI apps are served from subdomains of grantthrive.com and share
     # the same JWT-based SSO session.  In development, localhost ports are also
     # permitted.  The wildcard origin ("*") is intentionally NOT used so that
-    # supports_credentials=True works correctly (browsers reject wildcard + credentials).
+    # supports_credentials=True works correctly (browsers reject wildcard +
+    # credentials).
     allowed_origins = app.config.get("CORS_ORIGINS", [
-        # Production
+        # Production subdomains
         "https://grantthrive.com",
         "https://app.grantthrive.com",
         "https://admin.grantthrive.com",
         "https://map.grantthrive.com",
         "https://roi.grantthrive.com",
-        # Local development (Vite default ports for each app)
+        # Local development (Vite default ports)
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
@@ -45,67 +86,71 @@ def create_app(config_class=Config):
     ])
     CORS(app, origins=allowed_origins, supports_credentials=True)
 
-    # Initialize performance optimizations
+    # ── Optional performance optimizations ────────────────────────────────────
     try:
-        from app.optimizations import init_optimizations, PerformanceMiddleware, optimize_db_connection
+        from app.optimizations import (
+            init_optimizations,
+            PerformanceMiddleware,
+            optimize_db_connection,
+        )
         init_optimizations(app)
         PerformanceMiddleware(app)
         optimize_db_connection(app)
     except ImportError:
-        pass  # Optimizations not available
+        pass  # Optimizations module not available — safe to skip
 
-    # Configure login manager
-    login_manager.login_view = 'auth.login'
-    login_manager.login_message = 'Please log in to access this page.'
-    login_manager.login_message_category = 'info'
+    # ── Flask-Login configuration ─────────────────────────────────────────────
+    # The login_view is only used for server-rendered redirects (legacy).
+    # All React apps use the JWT-based /auth/login endpoint instead.
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Please log in to access this page."
+    login_manager.login_message_category = "info"
 
-    # Register blueprints
+    # ── Blueprint registration ────────────────────────────────────────────────
+
+    # Core authentication (JWT-based SSO)
     from app.auth import bp as auth_bp
-    app.register_blueprint(auth_bp, url_prefix='/auth')
+    app.register_blueprint(auth_bp, url_prefix="/auth")
 
+    # Main routes: homepage, dashboard, public grant listing
     from app.main import bp as main_bp
     app.register_blueprint(main_bp)
 
-    from app.admin import bp as admin_bp
-    app.register_blueprint(admin_bp, url_prefix='/admin')
-
-    from app.grants import bp as grants_bp
-    app.register_blueprint(grants_bp, url_prefix='/grants')
-
-    from app.applications import bp as applications_bp
-    app.register_blueprint(applications_bp, url_prefix='/applications')
-
-    from app.reviews import bp as reviews_bp
-    app.register_blueprint(reviews_bp, url_prefix='/reviews')
-
+    # Reports: PDF generation and download
     from app.reports import bp as reports_bp
-    app.register_blueprint(reports_bp, url_prefix='/reports')
+    app.register_blueprint(reports_bp, url_prefix="/reports")
 
+    # Workflows: pending approvals, grant processing pipeline
     from app.workflows import bp as workflows_bp
-    app.register_blueprint(workflows_bp, url_prefix='/workflows')
+    app.register_blueprint(workflows_bp, url_prefix="/workflows")
 
+    # Voting: community voting on grant applications
     from app.voting import voting as voting_bp
-    app.register_blueprint(voting_bp, url_prefix='/voting')
+    app.register_blueprint(voting_bp, url_prefix="/voting")
 
+    # Mapping: interactive geographic grant map
     from app.mapping import mapping as mapping_bp
-    app.register_blueprint(mapping_bp, url_prefix='/mapping')
+    app.register_blueprint(mapping_bp, url_prefix="/mapping")
 
+    # Public: transparency dashboard and public data API
     from app.public import public as public_bp
-    app.register_blueprint(public_bp, url_prefix='/public')
+    app.register_blueprint(public_bp, url_prefix="/public")
 
-    from app.api import bp as api_bp
-    app.register_blueprint(api_bp, url_prefix='/api')
-
+    # API: health-check endpoint
     from app.api.health import health_bp
-    app.register_blueprint(health_bp, url_prefix='/api')
+    app.register_blueprint(health_bp, url_prefix="/api")
 
-    # Register template filters
-    from app.utils import register_template_filters
+    # ── Template filters ──────────────────────────────────────────────────────
+    from app.common.formatters import register_template_filters
     register_template_filters(app)
 
     return app
 
+
+# ── Flask-Login user loader ───────────────────────────────────────────────────
+
 @login_manager.user_loader
-def load_user(user_id):
+def load_user(user_id: str):
+    """Load a user by their primary key for Flask-Login session management."""
     from app.models import User
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))

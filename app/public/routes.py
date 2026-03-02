@@ -51,14 +51,14 @@ def transparency_dashboard():
     active_voting_sessions = VotingSession.query.join(Grant).filter(
         Grant.is_published == True,
         VotingSession.is_active == True,
-        VotingSession.starts_at <= datetime.utcnow(),
-        VotingSession.ends_at >= datetime.utcnow()
+        VotingSession.starts_at <= datetime.now(timezone.utc),
+        VotingSession.ends_at >= datetime.now(timezone.utc)
     ).count()
     
     # Get recent grants (last 30 days)
     recent_grants = Grant.query.filter(
         Grant.is_published == True,
-        Grant.created_at >= datetime.utcnow() - timedelta(days=30)
+        Grant.created_at >= datetime.now(timezone.utc) - timedelta(days=30)
     ).order_by(desc(Grant.created_at)).limit(10).all()
     
     # Get grant categories with counts
@@ -71,7 +71,7 @@ def transparency_dashboard():
     # Get monthly application trends (last 12 months)
     monthly_trends = []
     for i in range(12):
-        month_start = datetime.utcnow().replace(day=1) - timedelta(days=30*i)
+        month_start = datetime.now(timezone.utc).replace(day=1) - timedelta(days=30*i)
         month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
         
         month_applications = Application.query.join(Grant).filter(
@@ -244,7 +244,7 @@ def public_results():
     recent_successes = Application.query.join(Grant).filter(
         Grant.is_published == True,
         Application.status == 'approved',
-        Application.decision_date >= datetime.utcnow() - timedelta(days=90)
+        Application.decision_date >= datetime.now(timezone.utc) - timedelta(days=90)
     ).order_by(desc(Application.decision_date)).limit(10).all()
     
     return render_template('public/public_results.html',
@@ -281,7 +281,7 @@ def community_engagement():
     # Get engagement trends (last 6 months)
     engagement_trends = []
     for i in range(6):
-        month_start = datetime.utcnow().replace(day=1) - timedelta(days=30*i)
+        month_start = datetime.now(timezone.utc).replace(day=1) - timedelta(days=30*i)
         month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
         
         month_votes = CommunityVote.query.join(VotingSession).join(Grant).filter(
@@ -347,7 +347,7 @@ def api_public_grants():
     return jsonify({
         'grants': grants_data,
         'total': len(grants_data),
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     })
 
 @public.route('/api/statistics')
@@ -371,7 +371,7 @@ def api_public_statistics():
             'total_votes': CommunityVote.query.join(VotingSession).join(Grant).filter(Grant.is_published == True).count(),
             'active_voting_sessions': VotingSession.query.join(Grant).filter(Grant.is_published == True, VotingSession.is_active == True).count()
         },
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     return jsonify(stats)
@@ -383,7 +383,7 @@ def api_engagement_data():
     # Get monthly engagement data
     monthly_data = []
     for i in range(12):
-        month_start = datetime.utcnow().replace(day=1) - timedelta(days=30*i)
+        month_start = datetime.now(timezone.utc).replace(day=1) - timedelta(days=30*i)
         month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
         
         votes = CommunityVote.query.join(VotingSession).join(Grant).filter(
@@ -409,5 +409,5 @@ def api_engagement_data():
     
     return jsonify({
         'monthly_engagement': monthly_data,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     })

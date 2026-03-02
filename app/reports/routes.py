@@ -20,7 +20,7 @@ def dashboard():
         return redirect(url_for('main.index'))
     
     # Get date range for filtering (default: last 12 months)
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=365)
     
     # Build base query based on user permissions
@@ -154,9 +154,9 @@ def grant_performance():
     
     # Date range defaults
     if not date_from:
-        date_from = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
+        date_from = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
     if not date_to:
-        date_to = datetime.utcnow().strftime('%Y-%m-%d')
+        date_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
     # Build query
     if current_user.is_admin():
@@ -240,9 +240,9 @@ def application_analytics():
     
     # Date range defaults
     if not date_from:
-        date_from = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
+        date_from = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
     if not date_to:
-        date_to = datetime.utcnow().strftime('%Y-%m-%d')
+        date_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
     # Build base query
     if current_user.is_admin():
@@ -380,9 +380,9 @@ def financial_report():
     
     # Date range defaults
     if not date_from:
-        date_from = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
+        date_from = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
     if not date_to:
-        date_to = datetime.utcnow().strftime('%Y-%m-%d')
+        date_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
     # Financial summary by grant
     financial_by_grant = db.session.query(
@@ -496,9 +496,9 @@ def reviewer_performance():
     
     # Date range defaults
     if not date_from:
-        date_from = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
+        date_from = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
     if not date_to:
-        date_to = datetime.utcnow().strftime('%Y-%m-%d')
+        date_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
     # Reviewer performance summary
     reviewer_stats = db.session.query(
@@ -671,7 +671,7 @@ def api_dashboard_data():
         return jsonify({'error': 'Access denied'}), 403
     
     # Get the same data as dashboard but return as JSON
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=365)
     
     # Build base query based on user permissions

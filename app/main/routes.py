@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from app import db
 from app.main import bp
 from app.models import User, Grant, Application, Review
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 
 @bp.route('/')
@@ -18,8 +18,8 @@ def index():
     active_grants = Grant.query.filter(
         Grant.is_published == True,
         Grant.status == 'open',
-        Grant.opens_at <= datetime.utcnow(),
-        Grant.closes_at >= datetime.utcnow()
+        Grant.opens_at <= datetime.now(timezone.utc),
+        Grant.closes_at >= datetime.now(timezone.utc)
     ).count()
     
     return render_template('main/index.html', 
@@ -71,8 +71,8 @@ def dashboard():
         available_grants = Grant.query.filter(
             Grant.is_published == True,
             Grant.status == 'open',
-            Grant.opens_at <= datetime.utcnow(),
-            Grant.closes_at >= datetime.utcnow()
+            Grant.opens_at <= datetime.now(timezone.utc),
+            Grant.closes_at >= datetime.now(timezone.utc)
         ).limit(5).all()
         
         return render_template('main/community_dashboard.html',

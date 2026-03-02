@@ -30,7 +30,7 @@ def register_security_routes(voting_bp):
         # Recent suspicious activity
         recent_flags = CommunityVote.query.filter(
             CommunityVote.is_flagged == True,
-            CommunityVote.flagged_at >= datetime.utcnow() - timedelta(days=7)
+            CommunityVote.flagged_at >= datetime.now(timezone.utc) - timedelta(days=7)
         ).order_by(desc(CommunityVote.flagged_at)).limit(20).all()
         
         # IP address analysis
@@ -115,7 +115,7 @@ def register_security_routes(voting_bp):
                 vote.admin_reviewed = True
                 vote.admin_notes = admin_notes
                 vote.reviewed_by = current_user.id
-                vote.reviewed_at = datetime.utcnow()
+                vote.reviewed_at = datetime.now(timezone.utc)
                 
                 flash('Vote approved and verified.', 'success')
                 
@@ -124,7 +124,7 @@ def register_security_routes(voting_bp):
                 vote.admin_reviewed = True
                 vote.admin_notes = admin_notes
                 vote.reviewed_by = current_user.id
-                vote.reviewed_at = datetime.utcnow()
+                vote.reviewed_at = datetime.now(timezone.utc)
                 
                 flash('Vote rejected and marked as invalid.', 'warning')
                 
@@ -132,7 +132,7 @@ def register_security_routes(voting_bp):
                 vote.flag_severity = 'high'
                 vote.admin_notes = admin_notes
                 vote.reviewed_by = current_user.id
-                vote.reviewed_at = datetime.utcnow()
+                vote.reviewed_at = datetime.now(timezone.utc)
                 
                 flash('Vote marked for further investigation.', 'info')
             
@@ -179,21 +179,21 @@ def register_security_routes(voting_bp):
                 vote.is_verified = True
                 vote.admin_reviewed = True
                 vote.reviewed_by = current_user.id
-                vote.reviewed_at = datetime.utcnow()
+                vote.reviewed_at = datetime.now(timezone.utc)
                 updated_count += 1
                 
             elif action == 'reject_all':
                 vote.is_verified = False
                 vote.admin_reviewed = True
                 vote.reviewed_by = current_user.id
-                vote.reviewed_at = datetime.utcnow()
+                vote.reviewed_at = datetime.now(timezone.utc)
                 updated_count += 1
                 
             elif action == 'unflag_all':
                 vote.is_flagged = False
                 vote.admin_reviewed = True
                 vote.reviewed_by = current_user.id
-                vote.reviewed_at = datetime.utcnow()
+                vote.reviewed_at = datetime.now(timezone.utc)
                 updated_count += 1
         
         db.session.commit()
@@ -244,7 +244,7 @@ def register_security_routes(voting_bp):
             'session_info': {
                 'id': session.id,
                 'title': session.title,
-                'export_date': datetime.utcnow().isoformat(),
+                'export_date': datetime.now(timezone.utc).isoformat(),
                 'exported_by': current_user.username
             },
             'security_analytics': analytics,
@@ -267,7 +267,7 @@ def register_security_routes(voting_bp):
             func.min(CommunityVote.created_at).label('first_vote'),
             func.max(CommunityVote.created_at).label('last_vote')
         ).join(User, CommunityVote.voter_id == User.id).filter(
-            CommunityVote.created_at >= datetime.utcnow() - timedelta(hours=1)
+            CommunityVote.created_at >= datetime.now(timezone.utc) - timedelta(hours=1)
         ).group_by(CommunityVote.voter_id, User.username).having(
             func.count(CommunityVote.id) > 10
         ).all()

@@ -68,7 +68,7 @@ class VotingSecurityManager:
         """Check IP-based voting limits"""
         
         # Count votes from this IP in the last hour
-        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         recent_votes = CommunityVote.query.filter(
             and_(
                 CommunityVote.ip_address == ip_address,
@@ -94,7 +94,7 @@ class VotingSecurityManager:
             .order_by(CommunityVote.created_at.desc()).first()
         
         if last_user_vote:
-            time_since_last = (datetime.utcnow() - last_user_vote.created_at).total_seconds()
+            time_since_last = (datetime.now(timezone.utc) - last_user_vote.created_at).total_seconds()
             if time_since_last < self.rapid_voting_threshold:
                 return False, f"Please wait {self.rapid_voting_threshold - int(time_since_last)} seconds before voting again"
         
@@ -103,7 +103,7 @@ class VotingSecurityManager:
             .order_by(CommunityVote.created_at.desc()).first()
         
         if last_ip_vote:
-            time_since_last = (datetime.utcnow() - last_ip_vote.created_at).total_seconds()
+            time_since_last = (datetime.now(timezone.utc) - last_ip_vote.created_at).total_seconds()
             if time_since_last < 5:  # Stricter limit for IP
                 return False, "Voting too rapidly. Please slow down"
         
@@ -138,12 +138,12 @@ class VotingSecurityManager:
     def _check_user_account(self, user_id: int) -> Tuple[bool, str]:
         """Validate user account eligibility"""
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return False, "Invalid user account"
         
         # Check if account is too new (potential fake account)
-        account_age = (datetime.utcnow() - user.created_at).days
+        account_age = (datetime.now(timezone.utc) - user.created_at).days
         if account_age < 1:
             return False, "Account must be at least 1 day old to vote"
         
@@ -167,7 +167,7 @@ class VotingSecurityManager:
             and_(
                 CommunityVote.ip_address.like(f"{base_ip}.%"),
                 CommunityVote.voting_session_id == session_id,
-                CommunityVote.created_at >= datetime.utcnow() - timedelta(hours=1)
+                CommunityVote.created_at >= datetime.now(timezone.utc) - timedelta(hours=1)
             )
         ).all()
         
@@ -257,7 +257,7 @@ class VotingSecurityManager:
         recent_votes = CommunityVote.query.filter(
             and_(
                 CommunityVote.user_id == user_id,
-                CommunityVote.created_at >= datetime.utcnow() - timedelta(days=1)
+                CommunityVote.created_at >= datetime.now(timezone.utc) - timedelta(days=1)
             )
         ).count()
         
@@ -270,7 +270,7 @@ class VotingSecurityManager:
         ).filter(
             and_(
                 CommunityVote.user_id == user_id,
-                CommunityVote.created_at >= datetime.utcnow() - timedelta(days=7)
+                CommunityVote.created_at >= datetime.now(timezone.utc) - timedelta(days=7)
             )
         ).count()
         
@@ -312,12 +312,12 @@ class VotingSecurityManager:
     def flag_suspicious_vote(self, vote_id: int, reason: str, severity: str = 'medium'):
         """Flag a vote as suspicious for admin review"""
         
-        vote = CommunityVote.query.get(vote_id)
+        vote = db.session.get(CommunityVote, vote_id)
         if vote:
             vote.is_flagged = True
             vote.flag_reason = reason
             vote.flag_severity = severity
-            vote.flagged_at = datetime.utcnow()
+            vote.flagged_at = datetime.now(timezone.utc)
             db.session.commit()
             
             # Log the incident
@@ -373,7 +373,7 @@ class VotingSecurityManager:
         report = f"""
 VOTING SECURITY REPORT
 Session ID: {session_id}
-Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
+Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
 
 OVERVIEW:
 - Total Votes: {analytics['total_votes']}
@@ -435,7 +435,7 @@ def log_vote_attempt(user_id: int, application_id: int, session_id: int,
     user_agent = request.environ.get('HTTP_USER_AGENT', '')
     
     log_data = {
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'user_id': user_id,
         'application_id': application_id,
         'session_id': session_id,
