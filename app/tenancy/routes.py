@@ -29,7 +29,6 @@ from app.models import Council, User
 from app.auth.routes import token_required, role_required
 from app.tenancy.middleware import get_current_council
 from werkzeug.security import generate_password_hash
-
 logger = logging.getLogger(__name__)
 
 councils_bp = Blueprint('councils', __name__)
@@ -57,6 +56,36 @@ def _validate_subdomain(subdomain: str) -> str | None:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@councils_bp.route('/councils/check-subdomain', methods=['GET'])
+def check_subdomain():
+    """
+    Public endpoint — check whether a subdomain is available.
+
+    GET /api/councils/check-subdomain?subdomain=chb
+
+    Returns:
+        200  { "available": true,  "subdomain": "chb" }
+        200  { "available": false, "subdomain": "chb",  "reason": "already in use" }
+        400  { "available": false, "subdomain": "chb",  "reason": "<validation message>" }
+    """
+    raw = (request.args.get('subdomain') or '').strip().lower()
+
+    # Sanitise to valid characters before validation so the preview JS
+    # can send partially-typed values without triggering noisy errors.
+    import re as _re
+    sanitised = _re.sub(r'[^a-z0-9-]', '', raw)
+
+    err = _validate_subdomain(sanitised)
+    if err:
+        return jsonify({'available': False, 'subdomain': sanitised, 'reason': err}), 400
+
+    taken = Council.query.filter_by(subdomain=sanitised).first() is not None
+    if taken:
+        return jsonify({'available': False, 'subdomain': sanitised, 'reason': 'That subdomain is already in use.'}), 200
+
+    return jsonify({'available': True, 'subdomain': sanitised}), 200
+
 
 @councils_bp.route('/councils', methods=['GET'])
 @role_required('system_admin')
