@@ -228,7 +228,6 @@ def create_council(current_user):
 def resolve_council():
     """
     Resolve a subdomain to a council profile.
-
     Used by the frontend on load to fetch branding and config for the
     current tenant.
 
@@ -455,4 +454,153 @@ def provision_council_user(current_user, council_id):
             'full_name': user.full_name,
             'role':      user.role,
         },
+    }), 201
+
+
+@councils_bp.route('/councils/trial', methods=['POST'])
+def start_trial():
+    """
+    Self-serve trial onboarding endpoint — no authentication required.
+
+    A prospective council fills out the "Start Free Trial" form on the
+    marketing website or portal.  This endpoint:
+      1. Validates all inputs.
+      2. Creates a new Council record (plan='trial', 14-day trial_ends_at).
+      3. Creates the first council_admin user with is_active=True.
+      4. Returns a JWT so the user lands directly in their dashboard.
+      5. Sends a welcome email (logged to console in dev).
+
+    Request body:
+        {
+          "council_name":  "City of Melbourne",
+          "state":         "VIC",
+          "first_name":    "Sarah",
+          "last_name":     "Johnson",
+          "email":         "sarah@melbourne.vic.gov.au",
+          "password":      "...",
+          "phone":         "+61 3 9658 9658"   (optional)
+        }
+
+    Response (201):
+        {
+          "token":   "<jwt>",
+          "user":    { ... },
+          "council": { ... },
+          "message": "Welcome to GrantThrive! Your 14-day trial has started."
+        }
+    """
+    from datetime import timedelta
+    from app.auth.routes import _generate_token, _user_to_dict
+    from app.tenancy.email import send_trial_welcome_email
+
+    data         = request.get_json(silent=True) or {}
+    council_name = (data.get('council_name') or '').strip()
+    state        = (data.get('state') or '').strip().upper()
+    first_name   = (data.get('first_name') or '').strip()
+    last_name    = (data.get('last_name') or '').strip()
+    email        = (data.get('email') or '').strip().lower()
+    password     = data.get('password') or ''
+    phone        = (data.get('phone') or '').strip() or None
+
+    # ── Validation ────────────────────────────────────────────────────────────
+    errors = {}
+    if not council_name:
+        errors['council_name'] = 'Council name is required.'
+    if not state:
+        errors['state'] = 'State / region is required.'
+    if not first_name:
+        errors['first_name'] = 'First name is required.'
+    if not last_name:
+        errors['last_name'] = 'Last name is required.'
+    if not email or '@' not in email:
+        errors['email'] = 'A valid email address is required.'
+    if len(password) < 10:
+        errors['password'] = 'Password must be at least 10 characters.'
+    if errors:
+        return jsonify({'errors': errors}), 400
+
+    # ── Uniqueness checks ─────────────────────────────────────────────────────
+    if User.query.filter_by(email=email).first():
+        return jsonify({'errors': {'email': 'An account with this email already exists.'}}), 409
+
+    subdomain = Council.make_subdomain(council_name)
+    slug      = Council.make_slug(council_name)
+
+    # If the derived subdomain is taken, append an incrementing suffix
+    original_subdomain = subdomain
+    attempt = 0
+    while Council.query.filter_by(subdomain=subdomain).first():
+        attempt += 1
+        subdomain = f'{original_subdomain}{attempt}'
+
+    err = _validate_subdomain(subdomain)
+    if err:
+        return jsonify({'errors': {'council_name': err}}), 400
+
+    # ── Create council ────────────────────────────────────────────────────────
+    trial_ends = datetime.now(timezone.utc) + timedelta(days=14)
+    council = Council(
+        name          = council_name,
+        subdomain     = subdomain,
+        slug          = slug,
+        state         = state,
+        plan          = 'trial',
+        is_active     = True,
+        trial_ends_at = trial_ends,
+        contact_email = email,
+        contact_phone = phone,
+    )
+    db.session.add(council)
+    db.session.flush()  # get council.id before committing
+
+    # ── Create council_admin user ─────────────────────────────────────────────
+    base_username = email.split('@')[0].replace('.', '_')
+    username = base_username
+    counter  = 1
+    while User.query.filter_by(username=username).first():
+        username = f'{base_username}{counter}'
+        counter += 1
+
+    user = User(
+        username      = username,
+        email         = email,
+        password_hash = generate_password_hash(password),
+        first_name    = first_name,
+        last_name     = last_name,
+        role          = 'council_admin',
+        council_id    = council.id,
+        is_active     = True,
+        phone         = phone,
+    )
+    db.session.add(user)
+    db.session.commit()
+
+    logger.info(
+        "Trial started: council_id=%d subdomain=%s user_id=%d email=%s",
+        council.id, council.subdomain, user.id, email,
+    )
+
+    # ── Send welcome email (non-blocking; errors are logged, not raised) ──────
+    try:
+        send_trial_welcome_email(
+            to_email     = email,
+            first_name   = first_name,
+            council_name = council_name,
+            portal_url   = council.portal_url(),
+            trial_ends   = trial_ends,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Welcome email failed for %s: %s", email, exc)
+
+    # ── Issue JWT and return ──────────────────────────────────────────────────
+    token = _generate_token(user)
+    return jsonify({
+        'token':   token,
+        'user':    _user_to_dict(user),
+        'council': council.to_dict(),
+        'message': (
+            f'Welcome to GrantThrive, {first_name}! '
+            f'Your 14-day free trial has started. '
+            f'Your portal is at {council.portal_url()}.'
+        ),
     }), 201
