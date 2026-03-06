@@ -29,7 +29,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("SECRET_KEY",    "test-secret-key-for-sso-tests")
-os.environ.setdefault("DATABASE_URL",  "sqlite:///:memory:")
+os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", "postgresql://localhost/grantthrive_test"))
 os.environ.setdefault("FLASK_ENV",     "testing")
 os.environ.setdefault("TESTING",       "true")
 os.environ.setdefault("MAIL_SUPPRESS_SEND", "true")

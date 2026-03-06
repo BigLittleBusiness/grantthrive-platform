@@ -46,7 +46,7 @@ from werkzeug.security import generate_password_hash
 
 test_app = Flask(__name__)
 test_app.config.update(
-    SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+    SQLALCHEMY_DATABASE_URI=os.environ.get("TEST_DATABASE_URL", "postgresql://localhost/grantthrive_test"),
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
     SECRET_KEY="test-secret-key",
     TESTING=True,

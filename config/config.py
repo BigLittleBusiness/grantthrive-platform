@@ -10,7 +10,12 @@ Usage in application factory::
 
 Environment variables (see .env.example for full reference):
   SECRET_KEY          — Required in production. Must be a long random string.
-  DATABASE_URL        — SQLAlchemy database URI.
+  DATABASE_URL        — PostgreSQL connection URI.
+                        Format: postgresql://user:password@host:port/dbname
+                        Also accepts the legacy "postgres://" prefix used by
+                        some hosting providers (auto-corrected to "postgresql://").
+  DEV_DATABASE_URL    — PostgreSQL URI for local development (optional).
+  TEST_DATABASE_URL   — PostgreSQL URI for the test environment (optional).
   MAIL_SERVER         — SMTP server hostname.
   MAIL_PORT           — SMTP port (default: 587).
   MAIL_USE_TLS        — Enable STARTTLS (default: true).
@@ -24,6 +29,17 @@ Environment variables (see .env.example for full reference):
 import os
 
 
+def _fix_postgres_url(url: str) -> str:
+    """
+    Some hosting providers (e.g. Heroku, Render) supply DATABASE_URL with the
+    legacy ``postgres://`` scheme.  SQLAlchemy 1.4+ requires ``postgresql://``.
+    This helper corrects the scheme transparently.
+    """
+    if url and url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql://", 1)
+    return url
+
+
 class Config:
     """Base configuration shared by all environments."""
 
@@ -35,14 +51,24 @@ class Config:
     TESTING    = False
 
     # ── Database ──────────────────────────────────────────────────────────────
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL",
-        "sqlite:///grantthrive.db",
+    # PostgreSQL is the required database engine for all environments.
+    # The DATABASE_URL environment variable must be set to a valid PostgreSQL
+    # connection URI before starting the application.
+    #
+    # Example:
+    #   DATABASE_URL=postgresql://grantthrive:password@localhost:5432/grantthrive
+    SQLALCHEMY_DATABASE_URI = _fix_postgres_url(
+        os.environ.get("DATABASE_URL", "postgresql://localhost/grantthrive")
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Connection pool tuned for a multi-tenant SaaS workload.
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_pre_ping": True,   # Reconnect automatically after idle timeout
-        "pool_recycle":  300,    # Recycle connections every 5 minutes
+        "pool_size":     10,
+        "max_overflow":  20,
+        "pool_timeout":  30,
+        "pool_recycle":  1800,   # 30 minutes
+        "pool_pre_ping": True,
     }
 
     # ── Mail ──────────────────────────────────────────────────────────────────
@@ -76,21 +102,39 @@ class Config:
 
 
 class DevelopmentConfig(Config):
-    """Development configuration — enables debug mode and uses a local SQLite DB."""
+    """Development configuration — enables debug mode and uses a local PostgreSQL DB."""
 
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DEV_DATABASE_URL", "sqlite:///grantthrive_dev.db"
+    SQLALCHEMY_DATABASE_URI = _fix_postgres_url(
+        os.environ.get("DEV_DATABASE_URL", "postgresql://localhost/grantthrive_dev")
     )
+    # Smaller pool for local development.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_size":     5,
+        "max_overflow":  10,
+        "pool_timeout":  30,
+        "pool_recycle":  1800,
+        "pool_pre_ping": True,
+    }
 
 
 class TestingConfig(Config):
-    """Testing configuration — uses an in-memory SQLite DB and suppresses email."""
+    """Testing configuration — uses a dedicated PostgreSQL test DB and suppresses email."""
 
     TESTING               = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_DATABASE_URI = _fix_postgres_url(
+        os.environ.get("TEST_DATABASE_URL", "postgresql://localhost/grantthrive_test")
+    )
     WTF_CSRF_ENABLED      = False
     MAIL_SUPPRESS_SEND    = True
+    # Minimal pool for CI/test runners.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_size":     2,
+        "max_overflow":  5,
+        "pool_timeout":  10,
+        "pool_recycle":  300,
+        "pool_pre_ping": True,
+    }
 
 
 class ProductionConfig(Config):
