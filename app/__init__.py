@@ -15,6 +15,7 @@ Blueprint layout:
 
 Blueprints for grants, applications, reviews, and admin are intentionally
 omitted until those features are built.  They will be added here when ready.
+  /api/system-admins — System admin user management (GrantThrive staff CRUD)
 """
 
 from flask import Flask
@@ -152,6 +153,10 @@ def create_app(config_class=Config):
     # Tenancy: council provisioning and management API
     from app.tenancy.routes import councils_bp
     app.register_blueprint(councils_bp, url_prefix="/api")
+
+    # System Admin: GrantThrive staff management (add/edit/deactivate system_admin users)
+    from app.system_admin import bp as system_admin_bp
+    app.register_blueprint(system_admin_bp, url_prefix="/api")
 
     # ── Tenant resolution middleware ──────────────────────────────────────────
     # Runs before every request to resolve the council tenant from the subdomain.
