@@ -35,6 +35,7 @@ from app import db
 from app.grants import bp
 from app.models import Grant, Application, Council
 from app.common.permissions import permission_required, has_permission
+from app.common.plans import check_grant_limit, can_use_feature
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,28 @@ def create_grant(current_user):
             return jsonify({"error": "Council not found."}), 404
     else:
         council_id = current_user.council_id
+
+    # ── Plan enforcement (council_admin only — system_admin bypasses limits) ──
+    if current_user.role != "system_admin":
+        council = db.session.get(Council, council_id)
+        # Grant creation limit
+        ok, msg = check_grant_limit(council)
+        if not ok:
+            return jsonify({"error": msg}), 403
+        # Community Voting feature flag
+        if data.get("require_community_voting"):
+            if not can_use_feature(council, "community_voting"):
+                return jsonify({
+                    "error": "Community Voting is not included in your plan. "
+                             "Upgrade to Medium Council or add the Community Voting add-on (+$50/mo)."
+                }), 403
+        # Grant Mapping feature flag
+        if data.get("enable_mapping"):
+            if not can_use_feature(council, "grant_mapping"):
+                return jsonify({
+                    "error": "Grant Mapping is not included in your plan. "
+                             "Upgrade to Medium Council or add the Grant Mapping add-on (+$50/mo)."
+                }), 403
 
     try:
         opens_at  = datetime.fromisoformat(data["opens_at"])

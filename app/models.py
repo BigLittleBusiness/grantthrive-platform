@@ -48,9 +48,12 @@ class Council(db.Model):
     postcode        = db.Column(db.String(10))
 
     # Subscription / billing
-    plan            = db.Column(db.String(20), default='starter')    # starter, professional, enterprise
-    is_active       = db.Column(db.Boolean, default=True)
-    trial_ends_at   = db.Column(db.DateTime)
+    plan                   = db.Column(db.String(20), default='small')   # small, medium, large, trial
+    is_active              = db.Column(db.Boolean, default=True)
+    trial_ends_at          = db.Column(db.DateTime)
+    # Add-ons (purchasable by Small Council only)
+    addon_community_voting = db.Column(db.Boolean, default=False)
+    addon_grant_mapping    = db.Column(db.Boolean, default=False)
 
     # Metadata
     created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -101,6 +104,8 @@ class Council(db.Model):
             'website_url':      self.website_url,
             'plan':             self.plan,
             'is_active':        self.is_active,
+            'addon_community_voting': self.addon_community_voting,
+            'addon_grant_mapping':    self.addon_grant_mapping,
             'portal_url':       self.portal_url(),
             'created_at':       self.created_at.isoformat() if self.created_at else None,
         }

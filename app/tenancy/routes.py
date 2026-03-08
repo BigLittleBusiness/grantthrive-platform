@@ -172,13 +172,20 @@ def create_council(current_user):
     if Council.query.filter_by(subdomain=subdomain).first():
         return jsonify({'error': f'Subdomain "{subdomain}" is already in use.'}), 409
 
+    # ── Plan validation ──────────────────────────────────────────────────────
+    from app.common.plans import PLAN_LIMITS, plan_entitlements
+    VALID_PLANS = {'small', 'medium', 'large', 'trial'}
+    requested_plan = data.get('plan', 'small').lower()
+    if requested_plan not in VALID_PLANS:
+        return jsonify({'error': f'Invalid plan "{requested_plan}". Must be one of: small, medium, large, trial.'}), 400
+
     council = Council(
         name             = name,
         subdomain        = subdomain,
         slug             = slug,
         state            = state,
         lga_code         = (data.get('lga_code') or '').strip() or None,
-        plan             = data.get('plan', 'starter'),
+        plan             = requested_plan,
         contact_email    = (data.get('contact_email') or '').strip() or None,
         contact_phone    = (data.get('contact_phone') or '').strip() or None,
         website_url      = (data.get('website_url') or '').strip() or None,
@@ -240,8 +247,9 @@ def create_council(current_user):
     )
 
     response = {
-        'message': f'Council "{name}" provisioned successfully.',
-        'council': council.to_dict(),
+        'message':      f'Council "{name}" provisioned successfully.',
+        'council':      council.to_dict(),
+        'entitlements': plan_entitlements(requested_plan),
     }
     if admin_user:
         response['admin_user'] = {
@@ -249,7 +257,6 @@ def create_council(current_user):
             'email': admin_user.email,
             'role':  admin_user.role,
         }
-
     return jsonify(response), 201
 
 
@@ -521,7 +528,7 @@ def start_trial():
     from datetime import timedelta
     from app.auth.routes import _generate_token, _user_to_dict
     from app.tenancy.email import send_trial_welcome_email
-
+    from app.common.plans import plan_entitlements
     data         = request.get_json(silent=True) or {}
     council_name = (data.get('council_name') or '').strip()
     state        = (data.get('state') or '').strip().upper()
@@ -530,6 +537,12 @@ def start_trial():
     email        = (data.get('email') or '').strip().lower()
     password     = data.get('password') or ''
     phone        = (data.get('phone') or '').strip() or None
+    # The plan the council intends to subscribe to after the trial.
+    # Stored for reference; entitlements during trial are always 'trial' limits.
+    VALID_PLANS = {'small', 'medium', 'large'}
+    intended_plan = (data.get('intended_plan') or 'small').lower()
+    if intended_plan not in VALID_PLANS:
+        intended_plan = 'small'
 
     # ── Validation ────────────────────────────────────────────────────────────
     errors = {}
@@ -624,9 +637,11 @@ def start_trial():
     # ── Issue JWT and return ──────────────────────────────────────────────────
     token = _generate_token(user)
     return jsonify({
-        'token':   token,
-        'user':    _user_to_dict(user),
-        'council': council.to_dict(),
+        'token':         token,
+        'user':          _user_to_dict(user),
+        'council':       council.to_dict(),
+        'entitlements':  plan_entitlements('trial'),
+        'intended_plan': intended_plan,
         'message': (
             f'Welcome to GrantThrive, {first_name}! '
             f'Your 14-day free trial has started. '
