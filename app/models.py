@@ -133,6 +133,11 @@ class User(UserMixin, db.Model):
     council_id    = db.Column(db.Integer, db.ForeignKey('councils.id'), nullable=True, index=True)
 
     is_active     = db.Column(db.Boolean, default=True)
+    # Approval state for self-registered community_member / professional_consultant accounts
+    is_approved   = db.Column(db.Boolean, default=False)
+    # Optional profile fields collected during registration
+    organisation  = db.Column(db.String(200))
+    abn           = db.Column(db.String(20))   # Australian Business Number (consultants)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login    = db.Column(db.DateTime)
 
