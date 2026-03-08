@@ -14,8 +14,13 @@ def list_workflows():
         flash('Access denied.', 'error')
         return redirect(url_for('main.index'))
     
-    # Get all grants with their workflow configurations
-    grants = Grant.query.filter_by(is_published=True).all()
+    # Get grants scoped to this council (system_admin sees all)
+    if current_user.role == 'system_admin':
+        grants = Grant.query.filter_by(is_published=True).all()
+    else:
+        grants = Grant.query.filter_by(
+            is_published=True, council_id=current_user.council_id
+        ).all()
     
     return render_template('workflows/list.html',
                          title='Workflow Management',
@@ -33,14 +38,21 @@ def pending_approvals():
     grant_id = request.args.get('grant_id', type=int)
     priority_filter = request.args.get('priority', '')
     
-    # Build query for applications ready for approval decision
-    if current_user.is_admin():
+    # Build query scoped to this council
+    if current_user.role == 'system_admin':
         query = Application.query.filter(
             Application.status.in_(['under_review', 'reviewed'])
         )
-    else:
-        # Non-admin staff only see applications for their grants
+    elif current_user.is_admin():
+        # council_admin sees all applications for their council
         query = Application.query.join(Grant).filter(
+            Grant.council_id == current_user.council_id,
+            Application.status.in_(['under_review', 'reviewed'])
+        )
+    else:
+        # council_staff only see applications for grants they created, within their council
+        query = Application.query.join(Grant).filter(
+            Grant.council_id == current_user.council_id,
             Grant.created_by == current_user.id,
             Application.status.in_(['under_review', 'reviewed'])
         )
@@ -67,11 +79,17 @@ def pending_approvals():
     applications = query.order_by(Application.submitted_at.asc())\
                        .paginate(page=page, per_page=20, error_out=False)
     
-    # Get available grants for filter
-    if current_user.is_admin():
+    # Get available grants for filter — scoped to council
+    if current_user.role == 'system_admin':
         grants = Grant.query.filter_by(is_published=True).all()
+    elif current_user.is_admin():
+        grants = Grant.query.filter_by(
+            is_published=True, council_id=current_user.council_id
+        ).all()
     else:
-        grants = Grant.query.filter_by(created_by=current_user.id, is_published=True).all()
+        grants = Grant.query.filter_by(
+            created_by=current_user.id, is_published=True, council_id=current_user.council_id
+        ).all()
     
     return render_template('workflows/pending.html',
                          title='Pending Approvals',
@@ -89,11 +107,19 @@ def approve_application(application_id):
         return redirect(url_for('main.index'))
     
     application = Application.query.get_or_404(application_id)
-    
-    # Check permissions for non-admin staff
-    if not current_user.is_admin() and application.grant.created_by != current_user.id:
-        flash('Access denied.', 'error')
-        return redirect(url_for('workflows.pending_approvals'))
+    grant = db.session.get(Grant, application.grant_id)
+
+    # Enforce council scope — council users cannot touch another council's applications
+    if current_user.role != 'system_admin':
+        if not grant or grant.council_id != current_user.council_id:
+            flash('Access denied.', 'error')
+            return redirect(url_for('workflows.pending_approvals'))
+
+    # council_staff can only approve applications for grants they created
+    if not current_user.is_admin() and current_user.role != 'system_admin':
+        if grant.created_by != current_user.id:
+            flash('Access denied.', 'error')
+            return redirect(url_for('workflows.pending_approvals'))
     
     # Check if application is ready for approval decision
     if application.status not in ['under_review', 'reviewed']:

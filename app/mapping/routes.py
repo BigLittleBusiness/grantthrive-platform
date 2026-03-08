@@ -12,6 +12,7 @@ from app.models import Grant, Application, User, CommunityVote
 from app.mapping import mapping
 from app.utils import admin_required, staff_required
 import json
+from app.common.tenant import scope_grants
 import requests
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -24,6 +25,7 @@ def interactive_map():
     """Main interactive grant mapping interface"""
     
     # Get all grants with location data
+    _grants_q = scope_grants(current_user) if current_user.is_authenticated else Grant.query
     grants_with_locations = db.session.query(
         Grant.id,
         Grant.title,
@@ -36,11 +38,14 @@ def interactive_map():
         func.count(Application.id).label('application_count'),
         func.sum(Application.amount_requested).label('total_requested')
     ).outerjoin(Application).group_by(
-        Grant.id, Grant.title, Grant.category, Grant.total_budget, 
+        Grant.id, Grant.title, Grant.category, Grant.total_budget,
         Grant.status, Grant.latitude, Grant.longitude, Grant.location_name
     ).filter(
         and_(Grant.latitude.isnot(None), Grant.longitude.isnot(None))
-    ).all()
+    )
+    if current_user.is_authenticated and current_user.role != 'system_admin':
+        grants_with_locations = grants_with_locations.filter(Grant.council_id == current_user.council_id)
+    grants_with_locations = grants_with_locations.all()
     
     # Get demographic data for overlay
     demographic_data = get_demographic_overlay_data()

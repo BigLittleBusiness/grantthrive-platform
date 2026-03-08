@@ -9,6 +9,17 @@ from app.voting.security import validate_vote_security, security_manager, log_vo
 from app.utils import admin_required, staff_required
 import json
 
+
+def _assert_voting_scope(user, voting_session):
+    """Return a 403 abort if user cannot access this voting session.
+    system_admin may access any session; council roles are scoped to their own council.
+    """
+    if user.role == 'system_admin':
+        return
+    grant = db.session.get(Grant, voting_session.grant_id)
+    if not grant or grant.council_id != user.council_id:
+        abort(403)
+
 @voting.route('/public')
 def public_voting():
     """Public voting page showing all active voting sessions"""
@@ -237,16 +248,25 @@ def get_voting_results(session_id):
 @login_required
 @staff_required
 def admin_voting():
-    """Admin voting management dashboard"""
-    # Get all voting sessions
-    sessions = VotingSession.query.order_by(desc(VotingSession.created_at)).all()
-    
-    # Get voting statistics
+    """Admin voting management dashboard — scoped to user's council."""
+    if current_user.role == 'system_admin':
+        sessions = VotingSession.query.order_by(desc(VotingSession.created_at)).all()
+        base_q = VotingSession.query
+    else:
+        sessions = VotingSession.query.join(Grant).filter(
+            Grant.council_id == current_user.council_id
+        ).order_by(desc(VotingSession.created_at)).all()
+        base_q = VotingSession.query.join(Grant).filter(
+            Grant.council_id == current_user.council_id
+        )
+
     stats = {
-        'total_sessions': VotingSession.query.count(),
-        'active_sessions': VotingSession.query.filter(VotingSession.is_active == True).count(),
-        'total_votes': CommunityVote.query.count(),
-        'total_voters': db.session.query(func.count(func.distinct(CommunityVote.voter_id))).scalar()
+        'total_sessions':  base_q.count(),
+        'active_sessions': base_q.filter(VotingSession.is_active == True).count(),
+        'total_votes':     CommunityVote.query.join(VotingSession).join(Grant).filter(
+            Grant.council_id == current_user.council_id
+        ).count() if current_user.role != 'system_admin' else CommunityVote.query.count(),
+        'total_voters':    db.session.query(func.count(func.distinct(CommunityVote.voter_id))).scalar()
     }
     
     return render_template('voting/admin_voting.html',
@@ -258,7 +278,7 @@ def admin_voting():
 @login_required
 @staff_required
 def create_voting_session():
-    """Create new voting session"""
+    """Create new voting session — grant must belong to user's council."""
     if request.method == 'POST':
         data = request.form
         
@@ -266,6 +286,10 @@ def create_voting_session():
         grant = db.session.get(Grant, data['grant_id'])
         if not grant:
             flash('Invalid grant selected.', 'error')
+            return redirect(url_for('voting.create_voting_session'))
+        # Enforce council scope
+        if current_user.role != 'system_admin' and grant.council_id != current_user.council_id:
+            flash('Access denied — you cannot create a voting session for another council\'s grant.', 'error')
             return redirect(url_for('voting.create_voting_session'))
         
         try:
@@ -295,8 +319,11 @@ def create_voting_session():
             db.session.rollback()
             flash('Error creating voting session.', 'error')
     
-    # Get available grants
-    grants = Grant.query.filter(Grant.status == 'published').all()
+    # Get available grants — scoped to this council
+    grants_query = Grant.query.filter(Grant.status == 'published')
+    if current_user.role != 'system_admin':
+        grants_query = grants_query.filter(Grant.council_id == current_user.council_id)
+    grants = grants_query.all()
     
     return render_template('voting/create_session.html',
                          grants=grants,
@@ -306,8 +333,9 @@ def create_voting_session():
 @login_required
 @staff_required
 def manage_voting_session(session_id):
-    """Manage individual voting session"""
+    """Manage individual voting session — council-scoped."""
     session = VotingSession.query.get_or_404(session_id)
+    _assert_voting_scope(current_user, session)
     
     # Get voting analytics
     analytics = get_session_analytics(session_id)
@@ -321,8 +349,9 @@ def manage_voting_session(session_id):
 @login_required
 @staff_required
 def toggle_voting_session(session_id):
-    """Toggle voting session active status"""
+    """Toggle voting session active status — council-scoped."""
     session = VotingSession.query.get_or_404(session_id)
+    _assert_voting_scope(current_user, session)
     
     session.is_active = not session.is_active
     db.session.commit()
@@ -336,8 +365,9 @@ def toggle_voting_session(session_id):
 @login_required
 @staff_required
 def publish_voting_session(session_id):
-    """Publish voting session to make it visible to public"""
+    """Publish voting session — council-scoped."""
     session = VotingSession.query.get_or_404(session_id)
+    _assert_voting_scope(current_user, session)
     
     session.is_published = True
     db.session.commit()

@@ -4,6 +4,7 @@ from app import db
 from app.reports import bp
 from app.models import Application, Grant, User, Review
 from app.reports.forms import ReportFilterForm, CustomReportForm, ExportForm
+from app.common.tenant import scope_grants, scope_applications
 from datetime import datetime, timedelta
 from sqlalchemy import and_, or_, func, extract, case
 from decimal import Decimal
@@ -23,14 +24,9 @@ def dashboard():
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=365)
     
-    # Build base query based on user permissions
-    if current_user.is_admin():
-        applications_query = Application.query
-        grants_query = Grant.query
-    else:
-        # Non-admin staff only see their grants
-        applications_query = Application.query.join(Grant).filter(Grant.created_by == current_user.id)
-        grants_query = Grant.query.filter_by(created_by=current_user.id)
+    # Build base query scoped to this council
+    applications_query = scope_applications(current_user)
+    grants_query       = scope_grants(current_user)
     
     # Key metrics
     total_applications = applications_query.count()
@@ -45,8 +41,8 @@ def dashboard():
         Application.submitted_at <= end_date
     )
     
-    if not current_user.is_admin():
-        status_counts = status_counts.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        status_counts = status_counts.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     status_counts = status_counts.group_by(Application.status).all()
     
@@ -60,8 +56,8 @@ def dashboard():
         Application.submitted_at <= end_date
     )
     
-    if not current_user.is_admin():
-        financial_summary = financial_summary.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        financial_summary = financial_summary.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     financial_summary = financial_summary.first()
     
@@ -77,8 +73,8 @@ def dashboard():
         Application.submitted_at <= end_date
     )
     
-    if not current_user.is_admin():
-        monthly_trends = monthly_trends.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        monthly_trends = monthly_trends.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     monthly_trends = monthly_trends.group_by(
         extract('year', Application.submitted_at),
@@ -101,8 +97,8 @@ def dashboard():
         Application.submitted_at <= end_date
     )
     
-    if not current_user.is_admin():
-        top_grants = top_grants.filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        top_grants = top_grants.filter(Grant.council_id == current_user.council_id)
     
     top_grants = top_grants.group_by(Grant.id, Grant.title)\
                           .order_by(func.count(Application.id).desc())\
@@ -121,9 +117,9 @@ def dashboard():
         Review.created_at <= end_date
     )
     
-    if not current_user.is_admin():
+    if current_user.role != "system_admin":
         review_stats = review_stats.join(Application).join(Grant)\
-                                  .filter(Grant.created_by == current_user.id)
+                                  .filter(Grant.council_id == current_user.council_id)
     
     review_stats = review_stats.first()
     
@@ -159,10 +155,7 @@ def grant_performance():
         date_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
     # Build query
-    if current_user.is_admin():
-        grants_query = Grant.query.filter_by(is_published=True)
-    else:
-        grants_query = Grant.query.filter_by(created_by=current_user.id, is_published=True)
+    grants_query = scope_grants(current_user, Grant.query.filter_by(is_published=True))
     
     if grant_id:
         grants_query = grants_query.filter_by(id=grant_id)
@@ -187,8 +180,8 @@ def grant_performance():
         Grant.is_published == True
     )
     
-    if not current_user.is_admin():
-        grant_performance = grant_performance.filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        grant_performance = grant_performance.filter(Grant.council_id == current_user.council_id)
     
     if date_from:
         grant_performance = grant_performance.filter(
@@ -248,7 +241,7 @@ def application_analytics():
     if current_user.is_admin():
         applications_query = Application.query
     else:
-        applications_query = Application.query.join(Grant).filter(Grant.created_by == current_user.id)
+        applications_query = Application.query.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     # Apply filters
     if grant_id:
@@ -274,8 +267,8 @@ def application_analytics():
         Application.submitted_at <= datetime.strptime(date_to, '%Y-%m-%d')
     )
     
-    if not current_user.is_admin():
-        status_distribution = status_distribution.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        status_distribution = status_distribution.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     if grant_id:
         status_distribution = status_distribution.filter(Application.grant_id == grant_id)
@@ -314,8 +307,8 @@ def application_analytics():
         Application.submitted_at <= datetime.strptime(date_to, '%Y-%m-%d')
     )
     
-    if not current_user.is_admin():
-        weekly_trends = weekly_trends.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        weekly_trends = weekly_trends.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     if grant_id:
         weekly_trends = weekly_trends.filter(Application.grant_id == grant_id)
@@ -338,8 +331,8 @@ def application_analytics():
         Application.submitted_at <= datetime.strptime(date_to, '%Y-%m-%d')
     )
     
-    if not current_user.is_admin():
-        top_organizations = top_organizations.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        top_organizations = top_organizations.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     if grant_id:
         top_organizations = top_organizations.filter(Application.grant_id == grant_id)
@@ -399,8 +392,8 @@ def financial_report():
         Grant.is_published == True
     )
     
-    if not current_user.is_admin():
-        financial_by_grant = financial_by_grant.filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        financial_by_grant = financial_by_grant.filter(Grant.council_id == current_user.council_id)
     
     if date_from:
         financial_by_grant = financial_by_grant.filter(
@@ -433,8 +426,8 @@ def financial_report():
         Application.submitted_at <= datetime.strptime(date_to, '%Y-%m-%d')
     )
     
-    if not current_user.is_admin():
-        monthly_financial = monthly_financial.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        monthly_financial = monthly_financial.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     if grant_id:
         monthly_financial = monthly_financial.filter(Application.grant_id == grant_id)
@@ -518,9 +511,9 @@ def reviewer_performance():
         Review.created_at <= datetime.strptime(date_to, '%Y-%m-%d')
     )
     
-    if not current_user.is_admin():
+    if current_user.role != "system_admin":
         reviewer_stats = reviewer_stats.join(Application).join(Grant)\
-                                      .filter(Grant.created_by == current_user.id)
+                                      .filter(Grant.council_id == current_user.council_id)
     
     if reviewer_id:
         reviewer_stats = reviewer_stats.filter(User.id == reviewer_id)
@@ -542,9 +535,9 @@ def reviewer_performance():
         Review.completed_at <= datetime.strptime(date_to, '%Y-%m-%d')
     )
     
-    if not current_user.is_admin():
+    if current_user.role != "system_admin":
         completion_trends = completion_trends.join(Application).join(Grant)\
-                                           .filter(Grant.created_by == current_user.id)
+                                           .filter(Grant.council_id == current_user.council_id)
     
     if reviewer_id:
         completion_trends = completion_trends.filter(Review.reviewer_id == reviewer_id)
@@ -565,7 +558,7 @@ def reviewer_performance():
     else:
         # For non-admin staff, show reviewers who have reviewed their grants
         all_reviewers = User.query.join(Review).join(Application).join(Grant)\
-                                 .filter(Grant.created_by == current_user.id,
+                                 .filter(Grant.council_id == current_user.council_id,
                                         User.role.in_(['staff', 'admin']))\
                                  .distinct().all()
         all_grants = Grant.query.filter_by(created_by=current_user.id, is_published=True).all()
@@ -610,7 +603,7 @@ def _export_applications(format_type):
     if current_user.is_admin():
         applications = Application.query.join(Grant).all()
     else:
-        applications = Application.query.join(Grant).filter(Grant.created_by == current_user.id).all()
+        applications = Application.query.join(Grant).filter(Grant.council_id == current_user.council_id).all()
     
     if format_type == 'csv':
         output = io.StringIO()
@@ -678,7 +671,7 @@ def api_dashboard_data():
     if current_user.is_admin():
         applications_query = Application.query
     else:
-        applications_query = Application.query.join(Grant).filter(Grant.created_by == current_user.id)
+        applications_query = Application.query.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     # Monthly trends data
     monthly_trends = db.session.query(
@@ -691,8 +684,8 @@ def api_dashboard_data():
         Application.submitted_at <= end_date
     )
     
-    if not current_user.is_admin():
-        monthly_trends = monthly_trends.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        monthly_trends = monthly_trends.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     monthly_trends = monthly_trends.group_by(
         extract('year', Application.submitted_at),
@@ -711,8 +704,8 @@ def api_dashboard_data():
         Application.submitted_at <= end_date
     )
     
-    if not current_user.is_admin():
-        status_counts = status_counts.join(Grant).filter(Grant.created_by == current_user.id)
+    if current_user.role != "system_admin":
+        status_counts = status_counts.join(Grant).filter(Grant.council_id == current_user.council_id)
     
     status_counts = status_counts.group_by(Application.status).all()
     
