@@ -153,6 +153,10 @@ def create_app(config_class=Config):
     from app.system_admin import bp as system_admin_bp
     app.register_blueprint(system_admin_bp, url_prefix="/api")
 
+    # Pricing: live pricing configuration management
+    from app.pricing import pricing_bp
+    app.register_blueprint(pricing_bp)
+
     # ── Tenant resolution middleware ──────────────────────────────────────────
     # Runs before every request to resolve the council tenant from the subdomain.
     from app.tenancy.middleware import resolve_tenant

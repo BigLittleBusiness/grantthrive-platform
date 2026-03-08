@@ -185,6 +185,54 @@ def get_plan_limits(plan: str) -> PlanLimits:
     return PLAN_LIMITS.get(plan, _DEFAULT_PLAN)
 
 
+def get_live_plan_pricing(plan_key: str) -> dict:
+    """Return live pricing for a plan from the database, falling back to compiled defaults.
+
+    This is the authoritative source for pricing used at billing/signup time.
+    The PricingConfig table is updated by system admins via the admin dashboard.
+    If the database is unavailable, compiled defaults from PLAN_LIMITS are used.
+
+    Args:
+        plan_key: One of 'small', 'medium', 'large'.
+
+    Returns:
+        A dict with keys:
+            monthly_price_aud_cents
+            annual_price_aud_cents
+            annual_monthly_price_aud_cents
+            addon_community_voting_cents   (None for medium/large)
+            addon_grant_mapping_cents      (None for medium/large)
+            display_name
+            source: 'database' | 'defaults'
+    """
+    limits = PLAN_LIMITS.get(plan_key, _DEFAULT_PLAN)
+    defaults = {
+        "monthly_price_aud_cents":        limits.monthly_price_aud_cents,
+        "annual_price_aud_cents":         limits.annual_price_aud_cents,
+        "annual_monthly_price_aud_cents": limits.annual_monthly_price_aud_cents,
+        "addon_community_voting_cents":   5000 if limits.community_voting_addon_available else None,
+        "addon_grant_mapping_cents":      5000 if limits.grant_mapping_addon_available else None,
+        "display_name":                   limits.display_name,
+        "source":                         "defaults",
+    }
+    try:
+        from app.models import PricingConfig
+        row = PricingConfig.query.filter_by(plan_key=plan_key).first()
+        if row:
+            return {
+                "monthly_price_aud_cents":        row.monthly_price_aud_cents,
+                "annual_price_aud_cents":         row.annual_price_aud_cents,
+                "annual_monthly_price_aud_cents": row.annual_monthly_price_aud_cents,
+                "addon_community_voting_cents":   row.addon_community_voting_cents if limits.community_voting_addon_available else None,
+                "addon_grant_mapping_cents":      row.addon_grant_mapping_cents if limits.grant_mapping_addon_available else None,
+                "display_name":                   row.display_name,
+                "source":                         "database",
+            }
+    except Exception:
+        pass  # DB unavailable — fall through to defaults
+    return defaults
+
+
 def can_use_feature(council, feature: str) -> bool:
     """Return True if the council can use the named feature.
 
@@ -247,7 +295,6 @@ def check_grant_limit(council) -> tuple[bool, str]:
             f"You currently have {active_count}. "
             "Please close or archive an existing grant, or upgrade your plan."
         )
-
     return True, ""
 
 
@@ -280,7 +327,6 @@ def check_staff_limit(council) -> tuple[bool, str]:
             f"You currently have {staff_count}. "
             "Please deactivate an existing account or upgrade your plan."
         )
-
     return True, ""
 
 
@@ -288,16 +334,24 @@ def plan_entitlements(plan: str) -> dict:
     """Return a JSON-serialisable dict of entitlements for the given plan.
 
     Used in API responses so the frontend can show/hide features without
-    hard-coding plan logic.
+    hard-coding plan logic.  Pricing fields are sourced from the live
+    database via get_live_plan_pricing() so they reflect admin edits.
     """
     limits = get_plan_limits(plan)
+    pricing = get_live_plan_pricing(plan)
     return {
         "plan":                          plan,
-        "display_name":                  limits.display_name,
+        "display_name":                  pricing.get("display_name", limits.display_name),
         "max_active_grants":             limits.max_active_grants,
         "max_staff_users":               limits.max_staff_users,
         "community_voting_included":     limits.community_voting_included,
         "grant_mapping_included":        limits.grant_mapping_included,
         "community_voting_addon_available": limits.community_voting_addon_available,
         "grant_mapping_addon_available": limits.grant_mapping_addon_available,
+        # Live pricing fields
+        "monthly_price_aud_cents":        pricing["monthly_price_aud_cents"],
+        "annual_price_aud_cents":         pricing["annual_price_aud_cents"],
+        "annual_monthly_price_aud_cents": pricing["annual_monthly_price_aud_cents"],
+        "addon_community_voting_cents":   pricing.get("addon_community_voting_cents"),
+        "addon_grant_mapping_cents":      pricing.get("addon_grant_mapping_cents"),
     }

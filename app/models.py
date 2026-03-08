@@ -608,3 +608,39 @@ class AuditLog(db.Model):
 
     def __repr__(self):
         return f'<AuditLog {self.action}>'
+
+
+# ── Pricing Configuration ─────────────────────────────────────────────────────
+class PricingConfig(db.Model):
+    """
+    Live pricing configuration for each plan tier.
+
+    System admins can edit these values via the admin dashboard.
+    The public /api/pricing/plans endpoint reads from this table so that
+    the marketing website always shows current prices.
+
+    Prices are stored in AUD cents (integer) to avoid floating-point issues.
+    """
+    __tablename__ = 'pricing_config'
+
+    id           = db.Column(db.Integer, primary_key=True)
+    plan_key     = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    display_name = db.Column(db.String(100), nullable=False)
+
+    # Monthly subscription price (AUD cents)
+    monthly_price_aud_cents       = db.Column(db.Integer, nullable=False, default=0)
+    # Annual subscription price (AUD cents) — 10 x monthly = 2 months free
+    annual_price_aud_cents        = db.Column(db.Integer, nullable=False, default=0)
+    # Per-month equivalent when billed annually (for display only)
+    annual_monthly_price_aud_cents= db.Column(db.Integer, nullable=False, default=0)
+
+    # Add-on prices (AUD cents per month) — only applicable to 'small' plan
+    addon_community_voting_cents  = db.Column(db.Integer, nullable=False, default=5000)
+    addon_grant_mapping_cents     = db.Column(db.Integer, nullable=False, default=5000)
+
+    # Audit fields
+    updated_at   = db.Column(db.DateTime, nullable=True)
+    updated_by   = db.Column(db.String(200), nullable=True)
+
+    def __repr__(self):
+        return f'<PricingConfig {self.plan_key}>'
