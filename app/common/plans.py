@@ -72,6 +72,10 @@ class PlanLimits:
     display_name: str
     # Monthly price in AUD cents (for reference / billing)
     monthly_price_aud_cents: int
+    # Annual price in AUD cents (10 x monthly = 2 months free)
+    annual_price_aud_cents: int
+    # Annual per-month equivalent in AUD cents (for display)
+    annual_monthly_price_aud_cents: int
 
 
 PLAN_LIMITS: dict[str, PlanLimits] = {
@@ -84,6 +88,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = True,
         grant_mapping_addon_available  = True,
         monthly_price_aud_cents        = 20000,   # $200.00
+        annual_price_aud_cents         = 200000,  # $2,000.00 (10 x $200 = 2 months free)
+        annual_monthly_price_aud_cents = 16700,   # ~$167/mo
     ),
     "medium": PlanLimits(
         display_name                   = "Medium Council",
@@ -94,6 +100,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
         monthly_price_aud_cents        = 50000,   # $500.00
+        annual_price_aud_cents         = 500000,  # $5,000.00 (10 x $500 = 2 months free)
+        annual_monthly_price_aud_cents = 41700,   # ~$417/mo
     ),
     "large": PlanLimits(
         display_name                   = "Large Council",
@@ -104,6 +112,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
         monthly_price_aud_cents        = 110000,  # $1,100.00
+        annual_price_aud_cents         = 1100000, # $11,000.00 (10 x $1,100 = 2 months free)
+        annual_monthly_price_aud_cents = 91700,   # ~$917/mo
     ),
     # ── Special plans ─────────────────────────────────────────────────────────
     "trial": PlanLimits(
@@ -115,6 +125,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = False, # no add-ons during trial
         grant_mapping_addon_available  = False,
         monthly_price_aud_cents        = 0,
+        annual_price_aud_cents         = 0,
+        annual_monthly_price_aud_cents = 0,
     ),
     "enterprise": PlanLimits(
         # Legacy alias — maps to large
@@ -126,6 +138,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
         monthly_price_aud_cents        = 110000,
+        annual_price_aud_cents         = 1100000,
+        annual_monthly_price_aud_cents = 91700,
     ),
     # ── Fallback for unknown plan strings ─────────────────────────────────────
     "starter": PlanLimits(
@@ -138,6 +152,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = True,
         grant_mapping_addon_available  = True,
         monthly_price_aud_cents        = 20000,
+        annual_price_aud_cents         = 200000,
+        annual_monthly_price_aud_cents = 16700,
     ),
     "professional": PlanLimits(
         # Backward-compat alias for 'medium'
@@ -149,6 +165,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
         monthly_price_aud_cents        = 50000,
+        annual_price_aud_cents         = 500000,
+        annual_monthly_price_aud_cents = 41700,
     ),
 }
 
