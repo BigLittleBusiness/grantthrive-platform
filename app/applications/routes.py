@@ -34,7 +34,7 @@ from flask import request, jsonify
 
 from app import db
 from app.applications import bp
-from app.models import Application, Grant, Review
+from app.models import Application, Grant, Review, ApplicationAssignment, User
 from app.common.permissions import permission_required, has_permission
 
 logger = logging.getLogger(__name__)
@@ -378,3 +378,156 @@ def update_application_status(current_user, app_id):
     db.session.commit()
 
     return jsonify({"message": f"Status updated to '{status}'.", "application": _app_to_dict(application)}), 200
+
+
+# ── Pending Approvals — staff queue ──────────────────────────────────────────
+
+@bp.route("/pending", methods=["GET"])
+@permission_required("applications:review")
+def list_pending_approvals(current_user):
+    """
+    Return applications that are awaiting review for the current council.
+    For council_staff: returns applications assigned to them plus unassigned ones.
+    For council_admin: returns all pending applications for the council.
+    """
+    council_grant_ids = [
+        g.id for g in Grant.query.filter_by(council_id=current_user.council_id).all()
+    ]
+
+    query = Application.query.filter(
+        Application.grant_id.in_(council_grant_ids),
+        Application.status.in_(["submitted", "under_review"]),
+    )
+
+    apps = query.order_by(Application.submitted_at.asc()).all()
+
+    result = []
+    for app in apps:
+        # Build assignment info
+        assignments = ApplicationAssignment.query.filter_by(application_id=app.id).all()
+        assigned_staff = []
+        for a in assignments:
+            staff = db.session.get(User, a.staff_id)
+            if staff:
+                assigned_staff.append({
+                    "user_id":     a.staff_id,
+                    "name":        staff.full_name,
+                    "status":      a.status,
+                    "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
+                })
+
+        # Check if current staff member is assigned
+        my_assignment = next(
+            (a for a in assignments if a.staff_id == current_user.id), None
+        )
+
+        grant = db.session.get(Grant, app.grant_id)
+        d = _app_to_dict(app)
+        d.update({
+            "grant_title":      grant.title if grant else None,
+            "assigned_staff":   assigned_staff,
+            "my_assignment":    {
+                "status": my_assignment.status,
+                "notes":  my_assignment.notes,
+            } if my_assignment else None,
+            "review_count":     app.reviews.filter_by(is_complete=True).count(),
+        })
+        result.append(d)
+
+    return jsonify({"applications": result, "total": len(result)}), 200
+
+
+@bp.route("/<int:app_id>/assign", methods=["POST"])
+@permission_required("applications:review")
+def assign_application(current_user, app_id):
+    """
+    Assign a staff member to review an application.
+    Council admin can assign any staff member.
+    Council staff can only self-assign.
+    Body: { "staff_id": <int>, "notes": "<optional>" }
+    """
+    application = db.session.get(Application, app_id)
+    if not application:
+        return jsonify({"error": "Application not found."}), 404
+    if not _can_access_application(current_user, application):
+        return jsonify({"error": "Access denied."}), 403
+
+    data     = request.get_json(silent=True) or {}
+    staff_id = data.get("staff_id", current_user.id)
+    notes    = (data.get("notes") or "").strip() or None
+
+    # council_staff can only self-assign
+    if current_user.role == "council_staff" and staff_id != current_user.id:
+        return jsonify({"error": "Staff members can only self-assign."}), 403
+
+    # Validate target staff member belongs to same council
+    target = db.session.get(User, staff_id)
+    if not target or target.council_id != current_user.council_id:
+        return jsonify({"error": "Staff member not found in your council."}), 404
+
+    # Upsert assignment
+    existing = ApplicationAssignment.query.filter_by(
+        application_id=app_id, staff_id=staff_id
+    ).first()
+
+    if existing:
+        if existing.status == "recused":
+            return jsonify({"error": "This staff member has recused themselves from this application."}), 409
+        existing.status     = "assigned"
+        existing.notes      = notes
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        assignment = ApplicationAssignment(
+            application_id = app_id,
+            staff_id       = staff_id,
+            assigned_by    = current_user.id,
+            status         = "assigned",
+            notes          = notes,
+        )
+        db.session.add(assignment)
+
+    if application.status == "submitted":
+        application.status = "under_review"
+
+    db.session.commit()
+    logger.info("Application %d assigned to staff_id=%d by user_id=%d", app_id, staff_id, current_user.id)
+    return jsonify({"message": "Application assigned successfully."}), 200
+
+
+@bp.route("/<int:app_id>/recuse", methods=["POST"])
+@permission_required("applications:review")
+def recuse_from_application(current_user, app_id):
+    """
+    Allow a staff member to recuse themselves from reviewing an application.
+    Body: { "notes": "<reason>" }
+    """
+    application = db.session.get(Application, app_id)
+    if not application:
+        return jsonify({"error": "Application not found."}), 404
+    if not _can_access_application(current_user, application):
+        return jsonify({"error": "Access denied."}), 403
+
+    data  = request.get_json(silent=True) or {}
+    notes = (data.get("notes") or "").strip() or None
+
+    existing = ApplicationAssignment.query.filter_by(
+        application_id=app_id, staff_id=current_user.id
+    ).first()
+
+    if existing:
+        existing.status     = "recused"
+        existing.notes      = notes
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        assignment = ApplicationAssignment(
+            application_id = app_id,
+            staff_id       = current_user.id,
+            assigned_by    = current_user.id,
+            status         = "recused",
+            notes          = notes,
+        )
+        db.session.add(assignment)
+
+    db.session.commit()
+    logger.info("Staff user_id=%d recused from application %d", current_user.id, app_id)
+    return jsonify({"message": "You have been recused from this application."}), 200

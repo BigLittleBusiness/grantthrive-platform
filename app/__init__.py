@@ -157,6 +157,10 @@ def create_app(config_class=Config):
     from app.pricing import pricing_bp
     app.register_blueprint(pricing_bp)
 
+    # Forum: community discussion forums (council staff ↔ community)
+    from app.forum import forum_bp
+    app.register_blueprint(forum_bp, url_prefix='/api')
+
     # ── Tenant resolution middleware ──────────────────────────────────────────
     # Runs before every request to resolve the council tenant from the subdomain.
     from app.tenancy.middleware import resolve_tenant

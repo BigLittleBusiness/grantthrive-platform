@@ -648,3 +648,194 @@ def start_trial():
             f'Your portal is at {council.portal_url()}.'
         ),
     }), 201
+
+
+# ── Council-Admin Staff Management ───────────────────────────────────────────
+# These endpoints allow a council_admin to manage their own council's staff
+# without needing system_admin access.
+
+@councils_bp.route('/councils/<int:council_id>/staff', methods=['POST'])
+@token_required
+def add_staff_member(current_user, council_id):
+    """Council admin adds a new staff member to their council."""
+    import secrets as _secrets
+    from app.common.password import hash_password as _hash
+
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    data       = request.get_json(silent=True) or {}
+    email      = (data.get('email') or '').strip().lower()
+    first_name = (data.get('first_name') or '').strip()
+    last_name  = (data.get('last_name') or '').strip()
+    role       = data.get('role', 'council_staff')
+    supplied_pw = data.get('password')
+    password   = supplied_pw or _secrets.token_urlsafe(12)
+
+    if not all([email, first_name, last_name]):
+        return jsonify({'error': 'email, first_name, and last_name are required.'}), 400
+    if role not in {'council_staff', 'council_admin'}:
+        return jsonify({'error': 'Role must be council_staff or council_admin.'}), 400
+    if len(password) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters.'}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({'error': f'A user with email "{email}" already exists.'}), 409
+
+    base_username = email.split('@')[0].replace('.', '_')
+    username = base_username
+    counter  = 1
+    while User.query.filter_by(username=username).first():
+        username = f'{base_username}{counter}'
+        counter += 1
+
+    user = User(
+        username      = username,
+        email         = email,
+        password_hash = _hash(password),
+        first_name    = first_name,
+        last_name     = last_name,
+        role          = role,
+        council_id    = council_id,
+        is_active     = True,
+    )
+    db.session.add(user)
+    db.session.commit()
+
+    logger.info("Staff added: user_id=%d role=%s council_id=%d by user_id=%d",
+                user.id, role, council_id, current_user.id)
+
+    resp = {
+        'message': f'Staff member "{email}" added to {council.name}.',
+        'user': {
+            'id':        user.id,
+            'email':     user.email,
+            'full_name': user.full_name,
+            'role':      user.role,
+            'is_active': user.is_active,
+        },
+    }
+    if not supplied_pw:
+        resp['temporary_password'] = password
+    return jsonify(resp), 201
+
+
+@councils_bp.route('/councils/<int:council_id>/staff/<int:user_id>', methods=['PATCH'])
+@token_required
+def update_staff_member(current_user, council_id, user_id):
+    """Update a staff member's details (role, active status, name)."""
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    user = db.session.get(User, user_id)
+    if not user or user.council_id != council_id:
+        return jsonify({'error': 'Staff member not found in this council.'}), 404
+
+    data = request.get_json(silent=True) or {}
+    if 'first_name' in data:
+        user.first_name = data['first_name'].strip()
+    if 'last_name' in data:
+        user.last_name = data['last_name'].strip()
+    if 'role' in data:
+        if data['role'] not in {'council_staff', 'council_admin'}:
+            return jsonify({'error': 'Role must be council_staff or council_admin.'}), 400
+        user.role = data['role']
+    if 'is_active' in data:
+        user.is_active = bool(data['is_active'])
+
+    db.session.commit()
+    logger.info("Staff updated: user_id=%d by user_id=%d", user_id, current_user.id)
+    return jsonify({
+        'message': 'Staff member updated.',
+        'user': {
+            'id':        user.id,
+            'email':     user.email,
+            'full_name': user.full_name,
+            'role':      user.role,
+            'is_active': user.is_active,
+        },
+    }), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/staff/<int:user_id>/reset-password',
+                   methods=['POST'])
+@token_required
+def reset_staff_password(current_user, council_id, user_id):
+    """Reset a staff member's password. Council admin or self."""
+    from app.common.password import hash_password as _hash
+
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    is_self         = current_user.id == user_id
+
+    if not is_system_admin and not is_own_admin and not is_self:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    user = db.session.get(User, user_id)
+    if not user or user.council_id != council_id:
+        return jsonify({'error': 'Staff member not found in this council.'}), 404
+
+    data         = request.get_json(silent=True) or {}
+    new_password = data.get('new_password') or ''
+    if len(new_password) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters.'}), 400
+
+    user.password_hash = _hash(new_password)
+    db.session.commit()
+    logger.info("Password reset: user_id=%d by user_id=%d", user_id, current_user.id)
+    return jsonify({'message': 'Password has been reset successfully.'}), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/billing', methods=['GET'])
+@token_required
+def get_billing_info(current_user, council_id):
+    """Return billing / subscription information for a council."""
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    from app.common.plans import get_live_plan_pricing, plan_entitlements
+    plan_key  = council.plan or 'trial'
+    pricing   = get_live_plan_pricing()
+    plan_data = pricing.get(plan_key, {})
+
+    return jsonify({
+        'council_id':    council.id,
+        'council_name':  council.name,
+        'plan':          plan_key,
+        'is_active':     council.is_active,
+        'trial_ends_at': (
+            council.trial_ends_at.isoformat() if council.trial_ends_at else None
+        ),
+        'billing': {
+            'monthly_price_aud': plan_data.get('monthly_price_aud'),
+            'annual_price_aud':  plan_data.get('annual_price_aud'),
+            'addon_voting_aud':  plan_data.get('addon_voting_aud'),
+            'addon_mapping_aud': plan_data.get('addon_mapping_aud'),
+        },
+        'entitlements': plan_entitlements(plan_key),
+    }), 200

@@ -39,8 +39,10 @@ logger = logging.getLogger(__name__)
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
 
-JWT_ALGORITHM   = "HS256"
-JWT_EXPIRY_DAYS = 7
+JWT_ALGORITHM        = "HS256"
+JWT_EXPIRY_DAYS      = 7          # default for all roles
+JWT_ADMIN_EXPIRY_HRS = 2          # system_admin sliding window (hours)
+JWT_ADMIN_REFRESH_MINS = 15       # issue a new token when < 15 min remain
 
 
 def _generate_token(user: User) -> str:
@@ -52,14 +54,20 @@ def _generate_token(user: User) -> str:
         if council:
             council_subdomain = council.subdomain
 
+    now = datetime.now(timezone.utc)
+    if user.role == 'system_admin':
+        expiry = now + timedelta(hours=JWT_ADMIN_EXPIRY_HRS)
+    else:
+        expiry = now + timedelta(days=JWT_EXPIRY_DAYS)
+
     payload = {
         "sub":               str(user.id),
         "email":             user.email,
         "role":              user.role,
         "council_id":        council_id,
         "council_subdomain": council_subdomain,
-        "iat":               datetime.now(timezone.utc),
-        "exp":               datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRY_DAYS),
+        "iat":               now,
+        "exp":               expiry,
     }
     return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm=JWT_ALGORITHM)
 
@@ -375,10 +383,23 @@ def verify_token():
     if not user or not user.is_active:
         return jsonify({"valid": False, "error": "User not found or inactive."}), 401
 
-    return jsonify({
+    response_body = {
         "valid": True,
         "user":  _user_to_dict(user),
-    }), 200
+    }
+
+    # ── Sliding window for system_admin ──────────────────────────────────────
+    # If the token has less than JWT_ADMIN_REFRESH_MINS minutes remaining,
+    # issue a fresh 2-hour token so an active admin is never logged out.
+    if user.role == 'system_admin':
+        exp_ts  = payload.get('exp', 0)
+        now_ts  = datetime.now(timezone.utc).timestamp()
+        remaining_mins = (exp_ts - now_ts) / 60
+        if remaining_mins < JWT_ADMIN_REFRESH_MINS:
+            new_token = _generate_token(user)
+            response_body['new_token'] = new_token
+
+    return jsonify(response_body), 200
 
 
 @bp.route("/demo-login", methods=["POST"])
@@ -509,3 +530,64 @@ def change_password(current_user):
     _write_audit_log(current_user.id, "password_changed", None,
                      council_id=current_user.council_id)
     return jsonify({"message": "Password changed successfully."}), 200
+
+
+@bp.route("/me", methods=["GET"])
+@token_required
+def get_me(current_user):
+    """Return the authenticated user's own profile."""
+    return jsonify({
+        "user": {
+            "id":           current_user.id,
+            "email":        current_user.email,
+            "first_name":   current_user.first_name,
+            "last_name":    current_user.last_name,
+            "full_name":    current_user.full_name,
+            "role":         current_user.role,
+            "phone":        getattr(current_user, "phone", None),
+            "position":     getattr(current_user, "position", None),
+            "department":   getattr(current_user, "department", None),
+            "council_id":   current_user.council_id,
+            "is_active":    current_user.is_active,
+            "created_at":   current_user.created_at.isoformat() if current_user.created_at else None,
+            "last_login":   current_user.last_login.isoformat() if getattr(current_user, "last_login", None) else None,
+        }
+    }), 200
+
+
+@bp.route("/me", methods=["PATCH"])
+@token_required
+def update_me(current_user):
+    """
+    Update the authenticated user's own profile.
+    Allowed fields: first_name, last_name, phone, position, department
+    """
+    data = request.get_json(silent=True) or {}
+
+    allowed = {"first_name", "last_name", "phone", "position", "department"}
+    updated = {}
+    for field in allowed:
+        if field in data:
+            val = (data[field] or "").strip() if isinstance(data[field], str) else data[field]
+            setattr(current_user, field, val or None)
+            updated[field] = val
+
+    if not updated:
+        return jsonify({"error": "No valid fields provided."}), 400
+
+    db.session.commit()
+    logger.info("Profile updated: user_id=%d fields=%s", current_user.id, list(updated.keys()))
+    return jsonify({
+        "message": "Profile updated successfully.",
+        "user": {
+            "id":         current_user.id,
+            "email":      current_user.email,
+            "first_name": current_user.first_name,
+            "last_name":  current_user.last_name,
+            "full_name":  current_user.full_name,
+            "role":       current_user.role,
+            "phone":      getattr(current_user, "phone", None),
+            "position":   getattr(current_user, "position", None),
+            "department": getattr(current_user, "department", None),
+        }
+    }), 200

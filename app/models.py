@@ -644,3 +644,103 @@ class PricingConfig(db.Model):
 
     def __repr__(self):
         return f'<PricingConfig {self.plan_key}>'
+
+
+# ── Community Forum ───────────────────────────────────────────────────────────
+
+class Forum(db.Model):
+    """
+    A discussion forum created by council staff to communicate with
+    community members.  Forums belong to a council and can be joined
+    by any staff member of that council.
+    """
+    __tablename__ = 'forums'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    council_id  = db.Column(db.Integer, db.ForeignKey('councils.id'), nullable=False, index=True)
+    title       = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    is_public   = db.Column(db.Boolean, default=True, nullable=False)  # visible to community
+    is_active   = db.Column(db.Boolean, default=True, nullable=False)
+    created_by  = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at  = db.Column(db.DateTime, nullable=True)
+
+    council  = db.relationship('Council', backref='forums')
+    creator  = db.relationship('User', foreign_keys=[created_by], backref='created_forums')
+    posts    = db.relationship('ForumPost', back_populates='forum',
+                               order_by='ForumPost.created_at', cascade='all, delete-orphan')
+    members  = db.relationship('ForumMember', back_populates='forum',
+                               cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Forum {self.id} {self.title!r}>'
+
+
+class ForumPost(db.Model):
+    """A message posted in a forum thread."""
+    __tablename__ = 'forum_posts'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    forum_id   = db.Column(db.Integer, db.ForeignKey('forums.id'), nullable=False, index=True)
+    author_id  = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    body       = db.Column(db.Text, nullable=False)
+    is_pinned  = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+    forum  = db.relationship('Forum', back_populates='posts')
+    author = db.relationship('User', backref='forum_posts')
+
+    def __repr__(self):
+        return f'<ForumPost {self.id} forum={self.forum_id}>'
+
+
+class ForumMember(db.Model):
+    """
+    Tracks which staff members have joined a forum.
+    Community members see public forums without needing to join.
+    """
+    __tablename__ = 'forum_members'
+    __table_args__ = (db.UniqueConstraint('forum_id', 'user_id', name='uq_forum_member'),)
+
+    id         = db.Column(db.Integer, primary_key=True)
+    forum_id   = db.Column(db.Integer, db.ForeignKey('forums.id'), nullable=False, index=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    joined_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    forum = db.relationship('Forum', back_populates='members')
+    user  = db.relationship('User', backref='forum_memberships')
+
+    def __repr__(self):
+        return f'<ForumMember forum={self.forum_id} user={self.user_id}>'
+
+
+# ── Application Assignment ────────────────────────────────────────────────────
+
+class ApplicationAssignment(db.Model):
+    """
+    Tracks which staff members are assigned to review a specific application.
+    A staff member can recuse themselves so the application can be reassigned.
+    """
+    __tablename__ = 'application_assignments'
+    __table_args__ = (
+        db.UniqueConstraint('application_id', 'staff_id', name='uq_app_assignment'),
+    )
+
+    id             = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey('applications.id'), nullable=False, index=True)
+    staff_id       = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    assigned_by    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    # status: 'assigned' | 'recused' | 'completed'
+    status         = db.Column(db.String(20), default='assigned', nullable=False)
+    notes          = db.Column(db.Text, nullable=True)
+    assigned_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at     = db.Column(db.DateTime, nullable=True)
+
+    application  = db.relationship('Application', backref='assignments')
+    staff        = db.relationship('User', foreign_keys=[staff_id],  backref='review_assignments')
+    assigner     = db.relationship('User', foreign_keys=[assigned_by], backref='assigned_reviews')
+
+    def __repr__(self):
+        return f'<ApplicationAssignment app={self.application_id} staff={self.staff_id} status={self.status!r}>'
