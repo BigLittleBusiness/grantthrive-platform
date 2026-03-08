@@ -53,7 +53,6 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from flask import request, jsonify, current_app
-from werkzeug.security import generate_password_hash
 
 from app import db, limiter
 from app.auth import bp

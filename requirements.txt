@@ -23,6 +23,10 @@ Flask-Login==0.6.3
 bcrypt==4.0.1
 PyJWT==2.8.0
 email-validator==2.0.0
+# Argon2id password hashing (replaces Werkzeug PBKDF2)
+argon2-cffi==23.1.0
+# AES-256-GCM field-level encryption for PII
+cryptography==42.0.8
 
 # ─────────────────────────────────────────
 # Forms / Validation

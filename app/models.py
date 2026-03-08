@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
+from app.common.password import hash_password, verify_password
+from app.common.encryption import EncryptedString, hmac_index
 from sqlalchemy import Numeric
 import qrcode
 import io
@@ -39,11 +40,11 @@ class Council(db.Model):
     primary_colour  = db.Column(db.String(7), default='#15803d')     # Hex, defaults to GT green
     secondary_colour= db.Column(db.String(7), default='#166534')
 
-    # Contact
-    contact_email   = db.Column(db.String(120))
-    contact_phone   = db.Column(db.String(20))
-    website_url     = db.Column(db.String(500))
-    address         = db.Column(db.String(500))
+    # Contact — PII fields stored encrypted
+    contact_email   = db.Column(EncryptedString(500))
+    contact_phone   = db.Column(EncryptedString(200))
+    website_url     = db.Column(db.String(500))      # not PII — public URL
+    address         = db.Column(EncryptedString(700))
     postcode        = db.Column(db.String(10))
 
     # Subscription / billing
@@ -120,11 +121,14 @@ class User(UserMixin, db.Model):
 
     id            = db.Column(db.Integer, primary_key=True)
     username      = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    email         = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    # email is stored encrypted; email_hmac is a keyed HMAC-SHA256 index
+    # used for login lookups (equality search on encrypted fields is not possible)
+    email         = db.Column(EncryptedString(500), nullable=False)
+    email_hmac    = db.Column(db.String(64), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     first_name    = db.Column(db.String(50), nullable=False)
     last_name     = db.Column(db.String(50), nullable=False)
-    phone         = db.Column(db.String(20))
+    phone         = db.Column(EncryptedString(200))
 
     # Role: system_admin | council_admin | council_staff | community_member | professional_consultant
     role          = db.Column(db.String(30), nullable=False, default='community_member')
@@ -136,8 +140,8 @@ class User(UserMixin, db.Model):
     # Approval state for self-registered community_member / professional_consultant accounts
     is_approved   = db.Column(db.Boolean, default=False)
     # Optional profile fields collected during registration
-    organisation  = db.Column(db.String(200))
-    abn           = db.Column(db.String(20))   # Australian Business Number (consultants)
+    organisation  = db.Column(EncryptedString(300))
+    abn           = db.Column(EncryptedString(100))   # Australian Business Number (consultants)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login    = db.Column(db.DateTime)
 
@@ -147,11 +151,24 @@ class User(UserMixin, db.Model):
     applications   = db.relationship('Application', backref='applicant', lazy='dynamic')
     reviews        = db.relationship('Review', backref='reviewer', lazy='dynamic')
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+    def set_email(self, email: str) -> None:
+        """Set the email field and update the HMAC search index atomically."""
+        normalised = email.strip().lower()
+        self.email      = normalised          # stored encrypted via EncryptedString
+        self.email_hmac = hmac_index(normalised)  # searchable HMAC index
 
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+    def set_password(self, password: str) -> None:
+        """Hash password using Argon2id and store the encoded hash."""
+        self.password_hash = hash_password(password)
+
+    def check_password(self, password: str) -> tuple[bool, bool]:
+        """Verify password and return (is_valid, needs_rehash).
+
+        The needs_rehash flag is True when the stored hash uses legacy
+        PBKDF2 or outdated Argon2id parameters.  Callers should rehash
+        transparently on successful login.
+        """
+        return verify_password(self.password_hash, password)
 
     @property
     def full_name(self):
@@ -290,10 +307,10 @@ class Application(db.Model):
     amount_requested    = db.Column(Numeric(10, 2), nullable=False)
 
     contact_person = db.Column(db.String(100), nullable=False)
-    contact_email  = db.Column(db.String(120), nullable=False)
-    contact_phone  = db.Column(db.String(20))
+    contact_email  = db.Column(EncryptedString(500), nullable=False)
+    contact_phone  = db.Column(EncryptedString(200))
 
-    address   = db.Column(db.String(500))
+    address   = db.Column(EncryptedString(700))
     postcode  = db.Column(db.String(10))
     latitude  = db.Column(db.Float)
     longitude = db.Column(db.Float)
@@ -421,9 +438,9 @@ class CommunityVote(db.Model):
     vote_type  = db.Column(db.String(20), default='rating')
     comments   = db.Column(db.Text)
 
-    voter_email   = db.Column(db.String(120))
+    voter_email   = db.Column(EncryptedString(500))
     voter_postcode= db.Column(db.String(10))
-    voter_name    = db.Column(db.String(100))
+    voter_name    = db.Column(EncryptedString(300))
 
     ip_address  = db.Column(db.String(45))
     user_agent  = db.Column(db.String(500))

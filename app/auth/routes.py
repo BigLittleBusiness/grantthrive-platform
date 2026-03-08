@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import request, jsonify, current_app, g
-from werkzeug.security import check_password_hash, generate_password_hash
+from app.common.password import hash_password, verify_password
 
 from app import db, limiter
 from app.auth import bp
@@ -193,8 +193,15 @@ def login():
 
     user = User.query.filter_by(email=email).first()
 
-    if not user or not check_password_hash(user.password_hash, password):
+    if not user:
+        # Constant-time dummy check to prevent user enumeration via timing
+        verify_password('$argon2id$v=19$m=65536,t=3,p=4$dummy$dummy', password)
         logger.warning("Failed login attempt for email: %s", email)
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    is_valid, needs_rehash = verify_password(user.password_hash, password)
+    if not is_valid:
+        logger.warning("Failed login attempt for user_id=%d", user.id)
         return jsonify({"error": "Invalid email or password."}), 401
 
     if not user.is_active:
@@ -211,6 +218,11 @@ def login():
                 user.id, user.council_id, current_council.subdomain, current_council.id,
             )
             return jsonify({"error": "Invalid email or password."}), 401
+
+    # Transparently rehash legacy PBKDF2 hashes or outdated Argon2id parameters
+    if needs_rehash:
+        user.password_hash = hash_password(password)
+        logger.info("Rehashed password for user_id=%d to Argon2id", user.id)
 
     user.last_login = datetime.now(timezone.utc)
     db.session.commit()
@@ -486,10 +498,11 @@ def change_password(current_user):
     if len(new_password) < 8:
         return jsonify({"error": "New password must be at least 8 characters."}), 400
 
-    if not check_password_hash(current_user.password_hash, current_password):
+    is_valid, _ = verify_password(current_user.password_hash, current_password)
+    if not is_valid:
         return jsonify({"error": "Current password is incorrect."}), 401
 
-    current_user.password_hash = generate_password_hash(new_password)
+    current_user.password_hash = hash_password(new_password)
     db.session.commit()
 
     logger.info("Password changed: user_id=%d", current_user.id)

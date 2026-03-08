@@ -26,7 +26,7 @@ import re
 from datetime import datetime, timezone
 
 from flask import request, jsonify, current_app
-from werkzeug.security import generate_password_hash
+from app.common.password import hash_password  # noqa: F401 — used via user.set_password()
 
 from app import db, limiter
 from app.models import User, AuditLog

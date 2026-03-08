@@ -28,7 +28,7 @@ from app import db
 from app.models import Council, User
 from app.auth.routes import token_required, role_required
 from app.tenancy.middleware import get_current_council
-from werkzeug.security import generate_password_hash
+from app.common.password import hash_password
 logger = logging.getLogger(__name__)
 
 councils_bp = Blueprint('councils', __name__)
@@ -223,7 +223,7 @@ def create_council(current_user):
         admin_user = User(
             username      = username,
             email         = admin_email,
-            password_hash = generate_password_hash(admin_pass),
+            password_hash = hash_password(admin_pass),
             first_name    = admin_first,
             last_name     = admin_last,
             role          = 'council_admin',
@@ -461,7 +461,7 @@ def provision_council_user(current_user, council_id):
     user = User(
         username      = username,
         email         = email,
-        password_hash = generate_password_hash(password),
+        password_hash = hash_password(password),
         first_name    = first_name,
         last_name     = last_name,
         role          = role,
@@ -593,7 +593,7 @@ def start_trial():
     user = User(
         username      = username,
         email         = email,
-        password_hash = generate_password_hash(password),
+        password_hash = hash_password(password),
         first_name    = first_name,
         last_name     = last_name,
         role          = 'council_admin',
