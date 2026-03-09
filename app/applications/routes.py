@@ -27,6 +27,7 @@ Endpoints:
   PATCH  /api/applications/<id>/status    — Update application status (staff+)
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -251,6 +252,34 @@ def submit_application(current_user, app_id):
     application.status       = "submitted"
     application.submitted_at = datetime.now(timezone.utc)
     application.updated_at   = datetime.now(timezone.utc)
+    db.session.flush()  # get application.id before commit
+
+    # ── Auto-assign nominated reviewers ──────────────────────────────────────
+    # If the grant has a pre-configured assessment team, create an
+    # ApplicationAssignment row for each nominated reviewer so the application
+    # appears in their Pending Approvals queue immediately.
+    reviewer_ids = json.loads(grant.assigned_reviewer_ids or '[]')
+    if reviewer_ids:
+        for staff_id in reviewer_ids:
+            # Skip if an assignment already exists (idempotent)
+            existing = ApplicationAssignment.query.filter_by(
+                application_id=application.id, staff_id=staff_id
+            ).first()
+            if not existing:
+                db.session.add(ApplicationAssignment(
+                    application_id = application.id,
+                    staff_id       = staff_id,
+                    assigned_by    = current_user.id,  # system-generated; applicant is the trigger
+                    status         = 'assigned',
+                    notes          = 'Auto-assigned on submission',
+                ))
+        # Move straight to under_review since reviewers are already assigned
+        application.status = 'under_review'
+        logger.info(
+            "Application %d auto-assigned to %d reviewer(s) on submission",
+            application.id, len(reviewer_ids)
+        )
+
     db.session.commit()
 
     logger.info("Application submitted: id=%d by user_id=%d", application.id, current_user.id)
@@ -313,7 +342,16 @@ def review_application(current_user, app_id):
 @bp.route("/<int:app_id>/approve", methods=["POST"])
 @permission_required("applications:approve")
 def approve_application(current_user, app_id):
-    """Approve an application (council_admin or system_admin)."""
+    """
+    Record an approval from the current staff member.
+
+    Multi-approve logic:
+    - Marks the current user's ApplicationAssignment as 'completed'.
+    - Counts how many distinct staff members have completed their assignment.
+    - Compares against grant.required_approvals.
+    - Only transitions the application to 'approved' once the threshold is met.
+    - Council admin and system_admin can force-approve regardless of threshold.
+    """
     application = db.session.get(Application, app_id)
     if not application:
         return jsonify({"error": "Application not found."}), 404
@@ -322,13 +360,65 @@ def approve_application(current_user, app_id):
     if application.status not in ("submitted", "under_review", "reviewed"):
         return jsonify({"error": "Application cannot be approved in its current state."}), 409
 
-    application.status        = "approved"
-    application.decision_date = datetime.now(timezone.utc)
-    application.updated_at    = datetime.now(timezone.utc)
-    db.session.commit()
+    grant = db.session.get(Grant, application.grant_id)
+    required = grant.required_approvals if grant else 1
 
-    logger.info("Application approved: id=%d by user_id=%d", application.id, current_user.id)
-    return jsonify({"message": "Application approved.", "application": _app_to_dict(application)}), 200
+    # Force-approve path for council_admin / system_admin
+    force = current_user.role in ('council_admin', 'system_admin')
+
+    # Mark this staff member's assignment as completed
+    assignment = ApplicationAssignment.query.filter_by(
+        application_id=app_id, staff_id=current_user.id
+    ).first()
+    if assignment:
+        assignment.status = 'completed'
+    else:
+        # Create an implicit assignment if one doesn't exist (e.g. admin approving directly)
+        assignment = ApplicationAssignment(
+            application_id = app_id,
+            staff_id       = current_user.id,
+            assigned_by    = current_user.id,
+            status         = 'completed',
+            notes          = 'Direct approval',
+        )
+        db.session.add(assignment)
+
+    db.session.flush()
+
+    # Count completed approvals
+    completed_count = ApplicationAssignment.query.filter_by(
+        application_id=app_id, status='completed'
+    ).count()
+
+    if force or completed_count >= required:
+        application.status        = 'approved'
+        application.decision_date = datetime.now(timezone.utc)
+        application.updated_at    = datetime.now(timezone.utc)
+        db.session.commit()
+        logger.info(
+            "Application approved: id=%d by user_id=%d (completed=%d required=%d)",
+            application.id, current_user.id, completed_count, required
+        )
+        return jsonify({
+            "message":          "Application approved.",
+            "approvals_recorded": completed_count,
+            "required_approvals": required,
+            "application":      _app_to_dict(application),
+        }), 200
+    else:
+        application.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        remaining = required - completed_count
+        logger.info(
+            "Approval recorded for application %d by user_id=%d (%d/%d)",
+            application.id, current_user.id, completed_count, required
+        )
+        return jsonify({
+            "message":            f"Approval recorded. {remaining} more approval(s) required.",
+            "approvals_recorded":  completed_count,
+            "required_approvals":  required,
+            "application":         _app_to_dict(application),
+        }), 200
 
 
 @bp.route("/<int:app_id>/reject", methods=["POST"])

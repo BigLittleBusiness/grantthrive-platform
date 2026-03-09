@@ -238,6 +238,13 @@ class Grant(db.Model):
     updated_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
                             onupdate=lambda: datetime.now(timezone.utc))
 
+    # Assessment team — configured at grant creation by council admin
+    # JSON-encoded list of user IDs authorised to review applications for this grant.
+    # An empty list means any council_staff member may self-assign.
+    assigned_reviewer_ids = db.Column(db.Text, default='[]', nullable=False)
+    # Number of independent staff approvals required before an application is marked approved.
+    required_approvals    = db.Column(db.Integer, default=1, nullable=False)
+
     # QR Code
     qr_code_data = db.Column(db.Text)
 

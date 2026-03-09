@@ -26,6 +26,7 @@ Endpoints:
   GET    /api/grants/<id>/applications — List applications for a grant
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -33,7 +34,7 @@ from flask import request, jsonify
 
 from app import db
 from app.grants import bp
-from app.models import Grant, Application, Council
+from app.models import Grant, Application, ApplicationAssignment, Council, User
 from app.common.permissions import permission_required, has_permission
 from app.common.plans import check_grant_limit, can_use_feature
 
@@ -76,6 +77,9 @@ def _grant_to_dict(grant: Grant, detail: bool = False) -> dict:
             "region":        grant.region,
             "created_by":    grant.created_by,
             "updated_at":    grant.updated_at.isoformat() if grant.updated_at else None,
+            # Assessment team
+            "assigned_reviewer_ids": json.loads(grant.assigned_reviewer_ids or '[]'),
+            "required_approvals":    grant.required_approvals,
         })
     return d
 
@@ -87,6 +91,35 @@ def _assert_council_scope(user, grant: Grant):
     if grant.council_id != user.council_id:
         return jsonify({"error": "Access restricted to your own council."}), 403
     return None
+
+
+def _validate_reviewer_ids(raw_ids, council_id: int) -> list:
+    """
+    Validate a list of reviewer user IDs.
+    - Accepts a list of integers (or strings that can be cast to int).
+    - Filters out any IDs that do not belong to the given council as
+      council_staff or council_admin.
+    - Returns a de-duplicated list of valid integer IDs.
+    """
+    if not raw_ids or not isinstance(raw_ids, list):
+        return []
+    try:
+        ids = list({int(i) for i in raw_ids})
+    except (TypeError, ValueError):
+        return []
+    # Confirm each user exists in the same council and is a staff-level role
+    valid = (
+        User.query
+        .filter(
+            User.id.in_(ids),
+            User.council_id == council_id,
+            User.role.in_(['council_admin', 'council_staff']),
+            User.is_active == True,
+        )
+        .with_entities(User.id)
+        .all()
+    )
+    return [row.id for row in valid]
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -225,6 +258,11 @@ def create_grant(current_user):
         state         = data.get("state"),
         region        = data.get("region"),
         created_by    = current_user.id,
+        # Assessment team
+        assigned_reviewer_ids = json.dumps(
+            _validate_reviewer_ids(data.get("assigned_reviewer_ids", []), council_id)
+        ),
+        required_approvals = max(1, int(data.get("required_approvals", 1))),
     )
     db.session.add(grant)
     db.session.commit()
@@ -263,6 +301,14 @@ def update_grant(current_user, grant_id):
                 except ValueError:
                     return jsonify({"error": f"Invalid date for {field}."}), 400
             setattr(grant, field, val)
+
+    # Assessment team fields handled separately (need validation)
+    if "assigned_reviewer_ids" in data:
+        grant.assigned_reviewer_ids = json.dumps(
+            _validate_reviewer_ids(data["assigned_reviewer_ids"], grant.council_id)
+        )
+    if "required_approvals" in data:
+        grant.required_approvals = max(1, int(data["required_approvals"]))
 
     grant.updated_at = datetime.now(timezone.utc)
     db.session.commit()
@@ -359,4 +405,87 @@ def list_grant_applications(current_user, grant_id):
         "page":         pagination.page,
         "per_page":     pagination.per_page,
         "total_pages":  pagination.pages,
+    }), 200
+
+
+@bp.route("/<int:grant_id>/reviewers", methods=["GET"])
+@permission_required("grants:read")
+def list_grant_reviewers(current_user, grant_id):
+    """
+    Return the list of staff members available to be assigned as reviewers
+    for this grant.  Used by the Grant Creation Wizard Assessment Team step.
+
+    Returns all active council_staff and council_admin users in the same
+    council, with a flag indicating whether each is already nominated on
+    this grant's assigned_reviewer_ids list.
+    """
+    grant = db.session.get(Grant, grant_id)
+    if not grant:
+        return jsonify({"error": "Grant not found."}), 404
+
+    scope_error = _assert_council_scope(current_user, grant)
+    if scope_error:
+        return scope_error
+
+    council_id = grant.council_id
+    staff = (
+        User.query
+        .filter(
+            User.council_id == council_id,
+            User.role.in_(['council_admin', 'council_staff']),
+            User.is_active == True,
+        )
+        .order_by(User.first_name, User.last_name)
+        .all()
+    )
+
+    nominated_ids = set(json.loads(grant.assigned_reviewer_ids or '[]'))
+
+    return jsonify({
+        "staff": [
+            {
+                "id":         u.id,
+                "full_name":  u.full_name,
+                "role":       u.role,
+                "nominated":  u.id in nominated_ids,
+            }
+            for u in staff
+        ],
+        "required_approvals": grant.required_approvals,
+        "assigned_reviewer_ids": list(nominated_ids),
+    }), 200
+
+
+@bp.route("/council-staff", methods=["GET"])
+@permission_required("grants:create")
+def list_council_staff_for_wizard(current_user):
+    """
+    Return all active council_staff and council_admin users in the current
+    user's council.  Used by the Grant Creation Wizard to populate the
+    Assessment Team step before a grant has been saved.
+    """
+    council_id = current_user.council_id
+    if not council_id:
+        return jsonify({"staff": []}), 200
+
+    staff = (
+        User.query
+        .filter(
+            User.council_id == council_id,
+            User.role.in_(['council_admin', 'council_staff']),
+            User.is_active == True,
+        )
+        .order_by(User.first_name, User.last_name)
+        .all()
+    )
+
+    return jsonify({
+        "staff": [
+            {
+                "id":        u.id,
+                "full_name": u.full_name,
+                "role":      u.role,
+            }
+            for u in staff
+        ]
     }), 200
