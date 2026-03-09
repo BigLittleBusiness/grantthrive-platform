@@ -411,3 +411,182 @@ def api_engagement_data():
         'monthly_engagement': monthly_data,
         'timestamp': datetime.now(timezone.utc).isoformat()
     })
+
+
+# ---------------------------------------------------------------------------
+# JSON API endpoints for the React frontend (Transparency & Public Results)
+# ---------------------------------------------------------------------------
+
+@public.route('/api/transparency')
+def api_transparency():
+    """Full transparency dashboard data as JSON for the React frontend."""
+    from datetime import timezone as _tz
+
+    total_grants = Grant.query.filter_by(is_published=True).count()
+    active_grants = Grant.query.filter(
+        Grant.is_published == True, Grant.status == 'open'
+    ).count()
+
+    total_applications = Application.query.join(Grant).filter(
+        Grant.is_published == True, Application.status != 'draft'
+    ).count()
+    approved_applications = Application.query.join(Grant).filter(
+        Grant.is_published == True, Application.status == 'approved'
+    ).count()
+
+    total_budget = float(
+        db.session.query(func.sum(Grant.total_budget)).filter(Grant.is_published == True).scalar() or 0
+    )
+    total_approved_funding = float(
+        db.session.query(func.sum(Application.amount_requested)).join(Grant).filter(
+            Grant.is_published == True, Application.status == 'approved'
+        ).scalar() or 0
+    )
+
+    total_votes = CommunityVote.query.join(VotingSession).join(Grant).filter(
+        Grant.is_published == True
+    ).count()
+    active_voting_sessions = VotingSession.query.join(Grant).filter(
+        Grant.is_published == True, VotingSession.is_active == True
+    ).count()
+
+    # Category breakdown
+    category_stats = db.session.query(
+        Grant.category,
+        func.count(Grant.id).label('count'),
+        func.sum(Grant.total_budget).label('total_budget')
+    ).filter(Grant.is_published == True).group_by(Grant.category).all()
+
+    # Monthly application trend (last 12 months)
+    monthly_trends = []
+    now = datetime.now(_tz.utc)
+    for i in range(11, -1, -1):
+        month_start = (now.replace(day=1) - timedelta(days=30 * i)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
+        count = Application.query.join(Grant).filter(
+            Grant.is_published == True,
+            Application.submitted_at >= month_start,
+            Application.submitted_at <= month_end,
+        ).count()
+        monthly_trends.append({'month': month_start.strftime('%b %Y'), 'applications': count})
+
+    # Recent grants
+    recent_grants = Grant.query.filter(
+        Grant.is_published == True,
+        Grant.created_at >= now - timedelta(days=30)
+    ).order_by(desc(Grant.created_at)).limit(10).all()
+
+    return jsonify({
+        'summary': {
+            'total_grants': total_grants,
+            'active_grants': active_grants,
+            'total_applications': total_applications,
+            'approved_applications': approved_applications,
+            'total_budget': total_budget,
+            'total_approved_funding': total_approved_funding,
+            'total_votes': total_votes,
+            'active_voting_sessions': active_voting_sessions,
+            'approval_rate': round(
+                (approved_applications / total_applications * 100) if total_applications > 0 else 0, 1
+            ),
+        },
+        'category_stats': [
+            {
+                'category': c.category or 'Uncategorised',
+                'count': c.count,
+                'total_budget': float(c.total_budget or 0),
+            }
+            for c in category_stats
+        ],
+        'monthly_trends': monthly_trends,
+        'recent_grants': [
+            {
+                'id': g.id,
+                'title': g.title,
+                'category': g.category,
+                'status': g.status,
+                'total_budget': float(g.total_budget or 0),
+                'closes_at': g.closes_at.isoformat() if g.closes_at else None,
+            }
+            for g in recent_grants
+        ],
+        'timestamp': now.isoformat(),
+    })
+
+
+@public.route('/api/results')
+def api_public_results():
+    """Approved grant outcomes as JSON for the React frontend."""
+    from datetime import timezone as _tz
+
+    now = datetime.now(_tz.utc)
+
+    total_funded = float(
+        db.session.query(func.sum(Application.amount_requested)).join(Grant).filter(
+            Grant.is_published == True, Application.status == 'approved'
+        ).scalar() or 0
+    )
+    total_projects = Application.query.join(Grant).filter(
+        Grant.is_published == True, Application.status == 'approved'
+    ).count()
+
+    # Impact by category
+    impact_by_category = db.session.query(
+        Grant.category,
+        func.count(Application.id).label('projects'),
+        func.sum(Application.amount_requested).label('funding')
+    ).join(Application).filter(
+        Grant.is_published == True, Application.status == 'approved'
+    ).group_by(Grant.category).all()
+
+    # Recent approved applications (last 90 days)
+    recent_successes = Application.query.join(Grant).filter(
+        Grant.is_published == True,
+        Application.status == 'approved',
+    ).order_by(desc(Application.submitted_at)).limit(20).all()
+
+    # Completed grants
+    completed_grants = Grant.query.filter(
+        Grant.is_published == True, Grant.status == 'closed'
+    ).order_by(desc(Grant.closes_at)).limit(20).all()
+
+    return jsonify({
+        'summary': {
+            'total_funded': total_funded,
+            'total_projects': total_projects,
+        },
+        'impact_by_category': [
+            {
+                'category': row.category or 'Uncategorised',
+                'projects': row.projects,
+                'funding': float(row.funding or 0),
+            }
+            for row in impact_by_category
+        ],
+        'recent_successes': [
+            {
+                'id': a.id,
+                'title': getattr(a, 'project_title', None) or getattr(a, 'title', None) or f'Application #{a.id}',
+                'organisation': getattr(a, 'organization_name', None) or getattr(a, 'applicant_name', ''),
+                'amount': float(a.amount_requested or 0),
+                'grant_title': a.grant.title if a.grant else '',
+                'category': a.grant.category if a.grant else '',
+                'approved_at': a.submitted_at.isoformat() if a.submitted_at else None,
+            }
+            for a in recent_successes
+        ],
+        'completed_grants': [
+            {
+                'id': g.id,
+                'title': g.title,
+                'category': g.category,
+                'total_budget': float(g.total_budget or 0),
+                'closes_at': g.closes_at.isoformat() if g.closes_at else None,
+                'approved_count': Application.query.filter_by(grant_id=g.id, status='approved').count(),
+            }
+            for g in completed_grants
+        ],
+        'timestamp': now.isoformat(),
+    })

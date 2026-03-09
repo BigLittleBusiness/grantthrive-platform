@@ -1,6 +1,6 @@
 from flask import render_template, request, jsonify, flash, redirect, url_for, abort
 from flask_login import login_required, current_user
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, desc, and_, or_
 from app import db
 from app.models import Grant, Application, CommunityVote, VotingSession, VotingResult, User
@@ -499,3 +499,158 @@ def get_session_analytics(session_id):
         'vote_distribution': dict(vote_distribution),
         'top_applications': top_applications
     }
+
+
+# ---------------------------------------------------------------------------
+# JSON API endpoints consumed by the React frontend
+# ---------------------------------------------------------------------------
+
+@voting.route('/api/sessions', methods=['GET'])
+def api_list_sessions():
+    """Return all published voting sessions as JSON.
+    Public endpoint — no authentication required.
+    Optional query params: status=open|closed|scheduled|all (default: open)
+    """
+    status_filter = request.args.get('status', 'open')
+    now = datetime.now(timezone.utc)
+
+    query = VotingSession.query.filter(VotingSession.is_published == True)
+
+    if status_filter == 'open':
+        query = query.filter(
+            VotingSession.is_active == True,
+            VotingSession.starts_at <= now,
+            VotingSession.ends_at >= now,
+        )
+    elif status_filter == 'closed':
+        query = query.filter(VotingSession.ends_at < now)
+    elif status_filter == 'scheduled':
+        query = query.filter(VotingSession.starts_at > now)
+    # 'all' returns every published session
+
+    sessions = query.order_by(VotingSession.starts_at.desc()).all()
+
+    def _session_to_dict(s):
+        grant = db.session.get(Grant, s.grant_id)
+        # Build list of applications eligible for voting
+        apps = Application.query.filter(
+            Application.grant_id == s.grant_id,
+            Application.status.in_(['submitted', 'under_review', 'approved'])
+        ).all()
+        options = []
+        for app in apps:
+            result = VotingResult.query.filter_by(
+                application_id=app.id,
+                voting_session_id=s.id
+            ).first()
+            options.append({
+                'id': app.id,
+                'title': getattr(app, 'project_title', None) or getattr(app, 'title', None) or f'Application #{app.id}',
+                'description': getattr(app, 'project_description', None) or getattr(app, 'description', '') or '',
+                'category': getattr(app, 'category', None) or (grant.category if grant else ''),
+                'estimated_budget': getattr(app, 'amount_requested', None) or 0,
+                'vote_count': result.total_votes if result else 0,
+                'average_score': round(result.average_score, 2) if result else 0.0,
+                'percentage': 0,  # calculated client-side
+            })
+        # Compute percentages
+        total_votes = sum(o['vote_count'] for o in options)
+        for o in options:
+            o['percentage'] = round((o['vote_count'] / total_votes * 100), 1) if total_votes > 0 else 0
+
+        return {
+            'id': s.id,
+            'title': s.title,
+            'description': s.description or '',
+            'grant_title': grant.title if grant else '',
+            'voting_type': s.voting_type,
+            'min_vote_value': s.min_vote_value,
+            'max_vote_value': s.max_vote_value,
+            'allow_comments': s.allow_comments,
+            'require_registration': s.require_registration,
+            'starts_at': s.starts_at.isoformat(),
+            'ends_at': s.ends_at.isoformat(),
+            'status': s.status,
+            'total_votes': s.total_votes,
+            'unique_voters': s.total_voters,
+            'options': options,
+        }
+
+    return jsonify({
+        'sessions': [_session_to_dict(s) for s in sessions],
+        'total': len(sessions),
+    })
+
+
+@voting.route('/api/sessions/<int:session_id>', methods=['GET'])
+def api_get_session(session_id):
+    """Return a single voting session with full application options as JSON."""
+    s = VotingSession.query.get_or_404(session_id)
+    if not s.is_published:
+        return jsonify({'error': 'Voting session not found'}), 404
+
+    grant = db.session.get(Grant, s.grant_id)
+    apps = Application.query.filter(
+        Application.grant_id == s.grant_id,
+        Application.status.in_(['submitted', 'under_review', 'approved'])
+    ).all()
+
+    options = []
+    for app in apps:
+        result = VotingResult.query.filter_by(
+            application_id=app.id, voting_session_id=s.id
+        ).first()
+        options.append({
+            'id': app.id,
+            'title': getattr(app, 'project_title', None) or f'Application #{app.id}',
+            'description': getattr(app, 'project_description', '') or '',
+            'category': getattr(app, 'category', '') or '',
+            'estimated_budget': getattr(app, 'amount_requested', 0) or 0,
+            'vote_count': result.total_votes if result else 0,
+            'average_score': round(result.average_score, 2) if result else 0.0,
+        })
+
+    # User's existing votes (if authenticated)
+    user_votes = {}
+    if current_user.is_authenticated:
+        votes = CommunityVote.query.filter_by(
+            voting_session_id=session_id, voter_id=current_user.id
+        ).all()
+        user_votes = {str(v.application_id): v.vote_value for v in votes}
+
+    return jsonify({
+        'id': s.id,
+        'title': s.title,
+        'description': s.description or '',
+        'grant_title': grant.title if grant else '',
+        'voting_type': s.voting_type,
+        'min_vote_value': s.min_vote_value,
+        'max_vote_value': s.max_vote_value,
+        'allow_comments': s.allow_comments,
+        'require_registration': s.require_registration,
+        'starts_at': s.starts_at.isoformat(),
+        'ends_at': s.ends_at.isoformat(),
+        'status': s.status,
+        'total_votes': s.total_votes,
+        'unique_voters': s.total_voters,
+        'options': options,
+        'user_votes': user_votes,
+    })
+
+
+@voting.route('/api/sessions/<int:session_id>/vote', methods=['POST'])
+def api_submit_vote(session_id):
+    """Submit a vote for an application in a session via the React frontend.
+    Delegates to the existing submit_vote security pipeline.
+    """
+    data = request.get_json() or {}
+    data['voting_session_id'] = session_id
+    # Re-use the existing submit_vote logic by forwarding to it
+    from flask import current_app
+    with current_app.test_request_context(
+        '/voting/api/vote',
+        method='POST',
+        json=data,
+        headers=dict(request.headers),
+    ):
+        return submit_vote()
