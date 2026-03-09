@@ -283,6 +283,45 @@ def submit_application(current_user, app_id):
     db.session.commit()
 
     logger.info("Application submitted: id=%d by user_id=%d", application.id, current_user.id)
+
+    # ── Notifications: alert council admins + assigned reviewers ──
+    try:
+        from app.common.notifications import notify
+        from app.common import email_service
+        from app.models import User as _User
+        # Notify all council_admin users in this council
+        admins = _User.query.filter_by(
+            council_id=grant.council_id, role='council_admin', is_active=True
+        ).all()
+        for admin in admins:
+            notify(
+                user_id=admin.id,
+                ntype='application_submitted',
+                title=f'New application: {grant.title}',
+                message=f'A new application (#{application.id}) has been submitted for "{grant.title}".',
+                link='portal/council/pending-approvals',
+                send_email_fn=lambda a=admin: email_service.send_application_submitted(
+                    a.email, a.first_name, grant.title, application.id, grant.council.name
+                ),
+            )
+        # Notify each auto-assigned reviewer
+        for staff_id in reviewer_ids:
+            reviewer = db.session.get(_User, staff_id)
+            if reviewer:
+                notify(
+                    user_id=reviewer.id,
+                    ntype='reviewer_assigned',
+                    title=f'Application to review: {grant.title}',
+                    message=f'You have been assigned to review application #{application.id} for "{grant.title}".',
+                    link='portal/council/pending-approvals',
+                    send_email_fn=lambda r=reviewer: email_service.send_reviewer_assigned(
+                        r.email, r.first_name, grant.title, application.id,
+                        current_user.full_name
+                    ),
+                )
+    except Exception as _ne:
+        logger.warning("Application submitted notifications failed: %s", _ne)
+
     return jsonify(_app_to_dict(application, detail=True)), 200
 
 
@@ -399,6 +438,26 @@ def approve_application(current_user, app_id):
             "Application approved: id=%d by user_id=%d (completed=%d required=%d)",
             application.id, current_user.id, completed_count, required
         )
+        # ── Notify the applicant ──
+        try:
+            from app.common.notifications import notify
+            from app.common import email_service
+            from app.models import User as _User, Grant as _Grant
+            applicant = db.session.get(_User, application.applicant_id)
+            _grant    = db.session.get(_Grant, application.grant_id)
+            if applicant and _grant:
+                notify(
+                    user_id=applicant.id,
+                    ntype='application_approved',
+                    title=f'Application approved — {_grant.title}',
+                    message=f'Congratulations! Your application for "{_grant.title}" has been approved.',
+                    link='portal/community/dashboard',
+                    send_email_fn=lambda: email_service.send_application_status_update(
+                        applicant.email, applicant.first_name, _grant.title, 'approved'
+                    ),
+                )
+        except Exception as _ne:
+            logger.warning("Approval notification failed: %s", _ne)
         return jsonify({
             "message":          "Application approved.",
             "approvals_recorded": completed_count,
@@ -439,6 +498,28 @@ def reject_application(current_user, app_id):
     db.session.commit()
 
     logger.info("Application rejected: id=%d by user_id=%d", application.id, current_user.id)
+
+    # ── Notify the applicant ──
+    try:
+        from app.common.notifications import notify
+        from app.common import email_service
+        from app.models import User as _User, Grant as _Grant
+        applicant = db.session.get(_User, application.applicant_id)
+        _grant    = db.session.get(_Grant, application.grant_id)
+        if applicant and _grant:
+            notify(
+                user_id=applicant.id,
+                ntype='application_rejected',
+                title=f'Application update — {_grant.title}',
+                message=f'Your application for "{_grant.title}" was not successful this time.',
+                link='portal/community/dashboard',
+                send_email_fn=lambda: email_service.send_application_status_update(
+                    applicant.email, applicant.first_name, _grant.title, 'rejected'
+                ),
+            )
+    except Exception as _ne:
+        logger.warning("Rejection notification failed: %s", _ne)
+
     return jsonify({"message": "Application rejected.", "application": _app_to_dict(application)}), 200
 
 
@@ -578,9 +659,31 @@ def assign_application(current_user, app_id):
 
     if application.status == "submitted":
         application.status = "under_review"
-
     db.session.commit()
     logger.info("Application %d assigned to staff_id=%d by user_id=%d", app_id, staff_id, current_user.id)
+
+    # ── Notify the assigned reviewer (only if assigning someone else) ──
+    if staff_id != current_user.id:
+        try:
+            from app.common.notifications import notify
+            from app.common import email_service
+            from app.models import Grant as _Grant
+            _grant = db.session.get(_Grant, application.grant_id)
+            if target and _grant:
+                notify(
+                    user_id=target.id,
+                    ntype='reviewer_assigned',
+                    title=f'Application to review: {_grant.title}',
+                    message=f'You have been assigned to review application #{application.id} for "{_grant.title}" by {current_user.full_name}.',
+                    link='portal/council/pending-approvals',
+                    send_email_fn=lambda: email_service.send_reviewer_assigned(
+                        target.email, target.first_name, _grant.title, application.id,
+                        current_user.full_name
+                    ),
+                )
+        except Exception as _ne:
+            logger.warning("Reviewer assigned notification failed: %s", _ne)
+
     return jsonify({"message": "Application assigned successfully."}), 200
 
 

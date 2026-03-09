@@ -355,10 +355,38 @@ def toggle_voting_session(session_id):
     
     session.is_active = not session.is_active
     db.session.commit()
-    
+
     status = 'activated' if session.is_active else 'deactivated'
     flash(f'Voting session {status} successfully!', 'success')
-    
+
+    # ── Notifications: alert opted-in community members when voting opens ──
+    if session.is_active:
+        try:
+            from app.common.notifications import notify
+            from app.common import email_service
+            grant = db.session.get(Grant, session.grant_id)
+            council_id = grant.council_id if grant else None
+            if council_id:
+                members = User.query.filter_by(
+                    council_id=council_id,
+                    role='community_member',
+                    is_active=True,
+                ).filter(User.email_opt_in.is_(True)).all()
+                for member in members:
+                    notify(
+                        user_id=member.id,
+                        ntype='voting_opened',
+                        title=f'Voting is now open: {session.title}',
+                        message=f'A new community voting session "{session.title}" is now open. Cast your vote today!',
+                        link='portal/community/voting',
+                        send_email_fn=lambda m=member: email_service.send_voting_opened(
+                            m.email, m.first_name, session.title, session.id
+                        ),
+                    )
+        except Exception as _ne:
+            import logging as _log
+            _log.getLogger(__name__).warning('Voting opened notifications failed: %s', _ne)
+
     return redirect(url_for('voting.manage_voting_session', session_id=session_id))
 
 @voting.route('/admin/session/<int:session_id>/publish', methods=['POST'])

@@ -149,6 +149,11 @@ class User(UserMixin, db.Model):
     abn           = db.Column(EncryptedString(100))   # Australian Business Number (consultants)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login    = db.Column(db.DateTime)
+    # Password reset
+    reset_token        = db.Column(db.String(100), nullable=True, index=True)
+    reset_token_expiry = db.Column(db.DateTime, nullable=True)
+    # Email preferences (opt-in for broadcast emails; transactional emails always sent)
+    email_opt_in       = db.Column(db.Boolean, default=True, nullable=False)
 
     # Relationships
     created_grants = db.relationship('Grant', foreign_keys='Grant.created_by',
@@ -751,3 +756,42 @@ class ApplicationAssignment(db.Model):
 
     def __repr__(self):
         return f'<ApplicationAssignment app={self.application_id} staff={self.staff_id} status={self.status!r}>'
+
+
+# ── In-App Notifications ──────────────────────────────────────────────────────
+class Notification(db.Model):
+    """
+    Persistent in-app notification for a single user.
+    Notification types map to specific events; the `link` field holds the
+    relative frontend path the bell click should navigate to.
+    """
+    __tablename__ = 'notifications'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    # type: registration_confirmed | staff_added | application_submitted |
+    #        reviewer_assigned | application_status | voting_opened |
+    #        voting_closes_soon | results_published | monthly_digest |
+    #        renewal_reminder | password_reset | welcome | general
+    type       = db.Column(db.String(50), nullable=False)
+    title      = db.Column(db.String(200), nullable=False)
+    message    = db.Column(db.Text, nullable=False)
+    link       = db.Column(db.String(500), nullable=True)
+    is_read    = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id':         self.id,
+            'type':       self.type,
+            'title':      self.title,
+            'message':    self.message,
+            'link':       self.link,
+            'is_read':    self.is_read,
+            'created_at': self.created_at.isoformat() + 'Z',
+        }
+
+    def __repr__(self):
+        return f'<Notification user={self.user_id} type={self.type!r} read={self.is_read}>'

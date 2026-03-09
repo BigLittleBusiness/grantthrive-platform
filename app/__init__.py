@@ -161,6 +161,10 @@ def create_app(config_class=Config):
     from app.forum import forum_bp
     app.register_blueprint(forum_bp, url_prefix='/api')
 
+    # Notifications: in-app notification bell API
+    from app.notifications import bp as notifications_bp
+    app.register_blueprint(notifications_bp)
+
     # ── Tenant resolution middleware ──────────────────────────────────────────
     # Runs before every request to resolve the council tenant from the subdomain.
     from app.tenancy.middleware import resolve_tenant
@@ -169,6 +173,13 @@ def create_app(config_class=Config):
     # ── Template filters ──────────────────────────────────────────────────────
     from app.common.formatters import register_template_filters
     register_template_filters(app)
+
+    # ── Background scheduler (timed notification nudges) ──────────────────────
+    import os
+    # Only start in the main process (not the Werkzeug reloader child)
+    if not app.testing and os.environ.get('WERKZEUG_RUN_MAIN') != 'false':
+        from app.common.scheduled_jobs import init_scheduler
+        init_scheduler(app)
 
     return app
 

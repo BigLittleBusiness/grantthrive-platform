@@ -711,6 +711,23 @@ def add_staff_member(current_user, council_id):
     logger.info("Staff added: user_id=%d role=%s council_id=%d by user_id=%d",
                 user.id, role, council_id, current_user.id)
 
+    # ── Notifications: staff added email + in-app notification ──
+    try:
+        from app.common.notifications import notify
+        from app.common import email_service
+        notify(
+            user_id=user.id,
+            ntype='staff_added',
+            title=f'You have been added to {council.name}',
+            message=f'A Council Administrator has added you to {council.name} as {role.replace("_", " ").title()}.',
+            link='portal/council/dashboard',
+            send_email_fn=lambda: email_service.send_staff_added(
+                email, first_name, council.name, role, password
+            ),
+        )
+    except Exception as _ne:
+        logger.warning("Staff added notification failed: %s", _ne)
+
     resp = {
         'message': f'Staff member "{email}" added to {council.name}.',
         'user': {

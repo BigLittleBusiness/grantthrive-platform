@@ -341,6 +341,21 @@ def register():
     )
     _write_audit_log(user.id, "register", f"email={email} role={role}", council_id=council_id)
 
+    # ── Notifications: registration confirmation + 24-hour welcome (scheduled) ──
+    try:
+        from app.common.notifications import notify
+        from app.common import email_service
+        notify(
+            user_id=user.id,
+            ntype='registration_confirmed',
+            title='Welcome to GrantThrive',
+            message='Your account has been created and is pending approval.',
+            link='portal/community/dashboard',
+            send_email_fn=lambda: email_service.send_registration_confirmation(email, first_name),
+        )
+    except Exception as _ne:
+        logger.warning("Registration notification failed: %s", _ne)
+
     return jsonify({
         "message":          "Registration successful. Your account is pending approval.",
         "user":             _user_to_dict(user),
@@ -591,3 +606,81 @@ def update_me(current_user):
             "department": getattr(current_user, "department", None),
         }
     }), 200
+
+
+@bp.route("/forgot-password", methods=["POST"])
+def forgot_password():
+    """
+    Request a password reset email.
+    Accepts { "email": "..." } and sends a reset link if the account exists.
+    Always returns 200 to avoid email enumeration.
+    """
+    import secrets
+    data  = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+
+    if not email:
+        return jsonify({"message": "If an account exists for that email, a reset link has been sent."}), 200
+
+    user = User.query.filter_by(email_hmac=hmac_index(email)).first()
+    if user:
+        # Generate a secure token and store it on the user record
+        token = secrets.token_urlsafe(48)
+        user.reset_token       = token
+        user.reset_token_expiry = datetime.now(timezone.utc) + timedelta(hours=1)
+        db.session.commit()
+
+        try:
+            from app.common import email_service
+            email_service.send_password_reset(email, user.first_name, token)
+        except Exception as exc:
+            logger.warning("Password reset email failed for user %d: %s", user.id, exc)
+
+    return jsonify({"message": "If an account exists for that email, a reset link has been sent."}), 200
+
+
+@bp.route("/reset-password", methods=["POST"])
+def reset_password():
+    """
+    Complete a password reset using the token from the email link.
+    Accepts { "token": "...", "new_password": "..." }
+    """
+    data         = request.get_json(silent=True) or {}
+    token        = (data.get("token") or "").strip()
+    new_password = data.get("new_password") or ""
+
+    if not token or not new_password:
+        return jsonify({"error": "Token and new password are required."}), 400
+
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+
+    user = User.query.filter_by(reset_token=token).first()
+    if not user:
+        return jsonify({"error": "Invalid or expired reset token."}), 400
+
+    expiry = user.reset_token_expiry
+    if expiry and expiry.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        return jsonify({"error": "Reset token has expired. Please request a new one."}), 400
+
+    user.set_password(new_password)
+    user.reset_token        = None
+    user.reset_token_expiry = None
+    db.session.commit()
+
+    _write_audit_log(user.id, "password_reset", "Password reset via token")
+
+    # In-app notification
+    try:
+        from app.common.notifications import notify
+        notify(
+            user_id=user.id,
+            ntype='password_reset',
+            title='Password changed',
+            message='Your GrantThrive password was successfully reset.',
+            link=None,
+        )
+    except Exception as exc:
+        logger.warning("Password reset notification failed: %s", exc)
+
+    return jsonify({"message": "Password reset successfully. You can now log in."}), 200
