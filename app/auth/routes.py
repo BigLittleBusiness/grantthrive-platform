@@ -113,6 +113,16 @@ def _user_to_dict(user: User) -> dict:
         "council_id": user.council_id,
         "council": council_data,
         "is_active": user.is_active,
+        "is_approved": user.is_approved,
+        "phone": user.phone,
+        # organisation is stored as 'organisation' internally; expose as
+        # 'organization_name' to match the AdminApprovalDashboard contract.
+        "organisation": user.organisation,
+        "organization_name": user.organisation,
+        "abn": user.abn,
+        "position": getattr(user, 'position', None),
+        "department": getattr(user, 'department', None),
+        "subdomain": getattr(user, 'requested_subdomain', None),
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "last_login": user.last_login.isoformat() if user.last_login else None,
     }
@@ -279,28 +289,112 @@ def logout():
 def register():
     """
     Register a new user account.
+
+    Council registration logic
+    --------------------------
+    When ``user_type`` is ``"council"``:
+      - The email domain must end in a recognised government TLD
+        (``*.gov.au``, ``*.govt.nz``, ``*.gov.nz``, ``*.gov.uk``,
+        ``*.gov``, ``*.edu.au``, ``*.edu.nz``).
+      - If **no** council_admin already exists for that email domain, the
+        registrant is assigned ``council_admin`` and placed into the
+        approval queue (``is_active=False``, ``is_approved=False``).
+      - If a council_admin **already exists** for that domain, the request
+        is rejected with a 409 and a message directing the user to contact
+        their council admin.
     """
+    import re as _re
+
+    # ── Government email domain patterns ─────────────────────────────────────
+    GOVT_DOMAIN_PATTERNS = [
+        r'\.gov\.au$',
+        r'\.govt\.nz$',
+        r'\.gov\.nz$',
+        r'\.gov\.uk$',
+        r'\.gov$',
+        r'\.edu\.au$',
+        r'\.edu\.nz$',
+    ]
+
+    def _is_govt_email(addr: str) -> bool:
+        domain = addr.split('@')[-1].lower()
+        return any(_re.search(p, domain) for p in GOVT_DOMAIN_PATTERNS)
+
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
     first_name = (data.get("first_name") or "").strip()
     last_name = (data.get("last_name") or "").strip()
     phone = (data.get("phone") or "").strip() or None
-    role = data.get("role") or data.get("user_type") or "community_member"
-    organisation = (data.get("organisation") or "").strip() or None
+    raw_user_type = (data.get("user_type") or data.get("role") or "community_member").strip().lower()
+    organisation = (
+        data.get("organisation")
+        or data.get("organization_name")
+        or ""
+    ).strip() or None
     abn = (data.get("abn") or "").strip() or None
     email_opt_in = bool(data.get("email_opt_in", True))
 
     if not all([email, password, first_name, last_name]):
         return jsonify({"error": "Email, password, first name, and last name are required."}), 400
 
-    allowed_roles = {"community_member", "professional_consultant"}
-    if role not in allowed_roles:
-        role = "community_member"
-
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters."}), 400
 
+    # ── Determine role ────────────────────────────────────────────────────────
+    # Accepted self-registration roles:
+    #   community_member, professional_consultant — open registration
+    #   council (user_type alias) — council admin/staff path, domain-gated
+    OPEN_ROLES = {"community_member", "professional_consultant"}
+    COUNCIL_ALIASES = {"council", "council_admin", "council_staff"}
+
+    is_council_registration = raw_user_type in COUNCIL_ALIASES
+
+    if is_council_registration:
+        # ── Council path: validate government email domain ────────────────
+        if not _is_govt_email(email):
+            return jsonify({
+                "error": (
+                    "Council accounts require a government email address "
+                    "(e.g. name@council.gov.au). "
+                    "Please use your official council email to register."
+                )
+            }), 400
+
+        email_domain = email.split('@')[-1].lower()
+
+        # Check whether a council_admin already exists for this email domain.
+        # Because email is stored encrypted we must iterate users with
+        # role='council_admin' and compare the plaintext domain portion.
+        # This is a low-frequency operation (registration only) so the
+        # full-table scan over council_admin rows is acceptable.
+        existing_admin = next(
+            (
+                u for u in User.query.filter_by(role="council_admin").all()
+                if u.email and u.email.split('@')[-1].lower() == email_domain
+            ),
+            None,
+        )
+
+        if existing_admin:
+            # A council_admin already exists for this domain — reject.
+            return jsonify({
+                "error": (
+                    "A Council Administrator account already exists for your organisation. "
+                    "Please contact your Council Administrator to be added as a staff member."
+                )
+            }), 409
+
+        # First registrant from this domain → assign council_admin role
+        role = "council_admin"
+
+    elif raw_user_type in OPEN_ROLES:
+        role = raw_user_type
+    else:
+        # Unknown / unsupported user_type — default to community_member
+        role = "community_member"
+
+    # ── Duplicate email check ─────────────────────────────────────────────────
     email_digest = hmac_index(email)
     if User.query.filter_by(email_hmac=email_digest).first():
         return jsonify({"error": "An account with this email already exists."}), 409
@@ -315,6 +409,11 @@ def register():
         username = f"{base_username}{counter}"
         counter += 1
 
+    # Council-specific fields from the registration form
+    position = (data.get("position") or "").strip() or None
+    department = (data.get("department") or "").strip() or None
+    requested_subdomain = (data.get("subdomain") or "").strip() or None
+
     user = User(
         username=username,
         first_name=first_name,
@@ -327,6 +426,9 @@ def register():
         organisation=organisation,
         abn=abn,
         email_opt_in=email_opt_in,
+        position=position,
+        department=department,
+        requested_subdomain=requested_subdomain,
     )
     user.set_email(email)
     user.set_password(password)

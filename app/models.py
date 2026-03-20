@@ -147,6 +147,12 @@ class User(UserMixin, db.Model):
     # Optional profile fields collected during registration
     organisation  = db.Column(EncryptedString(300))
     abn           = db.Column(EncryptedString(100))   # Australian Business Number (consultants)
+    # Council-specific profile fields (populated during council registration)
+    position      = db.Column(db.String(100), nullable=True)   # e.g. "Grants Officer"
+    department    = db.Column(db.String(100), nullable=True)   # e.g. "Community Services"
+    # Requested subdomain — stored at registration, used when system_admin approves
+    # and creates the Council record.  NULL for non-council roles.
+    requested_subdomain = db.Column(db.String(100), nullable=True, index=True)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login    = db.Column(db.DateTime)
     # Password reset

@@ -157,8 +157,10 @@ def create_app(config_class=Config):
     # ── Blueprint registration ──────────────────────────────────────────────
 
     # Core authentication (JWT-based SSO)
+    # Mounted at both /auth (legacy server-rendered) and /api/auth (React frontend)
     from app.auth import bp as auth_bp
     app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(auth_bp, url_prefix="/api/auth", name="auth_api")
 
     # Main routes: homepage, dashboard, public grant listing
     from app.main import bp as main_bp

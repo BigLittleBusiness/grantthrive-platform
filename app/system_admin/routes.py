@@ -401,3 +401,196 @@ def restore_system_admin(current_user, admin_id):
         "message": "System admin account reactivated.",
         "admin":   _admin_to_dict(user),
     }), 200
+
+
+# ── Council Admin Approval Endpoints ─────────────────────────────────────────
+# These endpoints are consumed by the AdminApprovalDashboard in the React
+# System Admin panel.  They allow system_admin users to review, approve, or
+# reject self-registered council_admin accounts that are pending approval.
+
+def _pending_user_to_dict(user: User) -> dict:
+    """Serialise a pending user to the shape expected by AdminApprovalDashboard."""
+    from datetime import datetime, timezone
+    days_pending = 0
+    if user.created_at:
+        delta = datetime.now(timezone.utc) - user.created_at.replace(tzinfo=timezone.utc)
+        days_pending = delta.days
+    return {
+        "id":               user.id,
+        "email":            user.email,
+        "first_name":       user.first_name,
+        "last_name":        user.last_name,
+        "full_name":        f"{user.first_name} {user.last_name}",
+        "role":             user.role,
+        "phone":            user.phone,
+        # 'organisation' stored internally; expose as 'organization_name' for the dashboard
+        "organisation":     user.organisation,
+        "organization_name": user.organisation,
+        "position":         getattr(user, 'position', None),
+        "department":       getattr(user, 'department', None),
+        "subdomain":        getattr(user, 'requested_subdomain', None),
+        "is_active":        user.is_active,
+        "is_approved":      user.is_approved,
+        "created_at":       user.created_at.isoformat() if user.created_at else None,
+        "days_pending":     days_pending,
+    }
+
+
+@bp.route('/admin/users/pending', methods=['GET'])
+@role_required('system_admin')
+def get_pending_users(current_user):
+    """
+    GET /api/admin/users/pending
+    Return all users awaiting system_admin approval (is_active=False, is_approved=False).
+    Ordered by registration date, oldest first.
+    """
+    pending = (
+        User.query
+        .filter_by(is_active=False, is_approved=False)
+        .filter(User.role.in_(['council_admin', 'council_staff',
+                                'community_member', 'professional_consultant']))
+        .order_by(User.created_at.asc())
+        .all()
+    )
+    return jsonify({
+        "pending_users": [_pending_user_to_dict(u) for u in pending],
+        "count":         len(pending),
+    }), 200
+
+
+@bp.route('/admin/users/<int:user_id>/approve', methods=['POST'])
+@role_required('system_admin')
+def approve_pending_user(current_user, user_id):
+    """
+    POST /api/admin/users/<id>/approve
+    Approve a pending user registration.  Sets is_active=True, is_approved=True.
+    For council_admin registrations, also creates the Council record if it does
+    not already exist and links the user to it.
+    """
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if user.is_active and user.is_approved:
+        return jsonify({"error": "User is already approved and active."}), 409
+
+    # ── For council_admin: create the Council record if needed ────────────────
+    if user.role == 'council_admin' and not user.council_id:
+        from app.models import Council
+        from datetime import timedelta
+
+        # Derive subdomain from requested_subdomain or organisation name
+        raw_subdomain = getattr(user, 'requested_subdomain', None)
+        if not raw_subdomain and user.organisation:
+            raw_subdomain = Council.make_subdomain(user.organisation)
+        elif not raw_subdomain:
+            # Fall back to email local-part
+            raw_subdomain = Council.make_subdomain(user.email.split('@')[0])
+
+        # Ensure subdomain (and slug) are unique
+        subdomain = raw_subdomain
+        attempt = 0
+        while (
+            Council.query.filter_by(subdomain=subdomain).first()
+            or Council.query.filter_by(slug=subdomain).first()
+        ):
+            attempt += 1
+            subdomain = f"{raw_subdomain}{attempt}"
+
+        council = Council(
+            name          = user.organisation or f"{user.first_name} {user.last_name}'s Council",
+            subdomain     = subdomain,
+            slug          = subdomain,
+            plan          = 'trial',
+            is_active     = True,
+            trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14),
+            contact_email = user.email,
+            contact_phone = user.phone,
+        )
+        db.session.add(council)
+        db.session.flush()
+        user.council_id = council.id
+        logger.info(
+            "Council created on approval: council_id=%d subdomain=%s for user_id=%d",
+            council.id, subdomain, user.id,
+        )
+
+    user.is_active   = True
+    user.is_approved = True
+
+    _write_audit_log(
+        current_user.id,
+        "admin.approve_user",
+        f"approved user_id={user_id} role={user.role}",
+        council_id=user.council_id,
+    )
+    db.session.commit()
+
+    logger.info("User approved: user_id=%d by actor_id=%d", user_id, current_user.id)
+
+    # Send welcome email (best-effort)
+    try:
+        from app.common import email_service
+        email_service.send_welcome_getting_started(user.email, user.first_name)
+    except Exception as _e:
+        logger.warning("Approval welcome email failed for user_id=%d: %s", user_id, _e)
+
+    return jsonify({
+        "message": "User approved successfully.",
+        "user":    _pending_user_to_dict(user),
+    }), 200
+
+
+@bp.route('/admin/users/<int:user_id>/reject', methods=['POST'])
+@role_required('system_admin')
+def reject_pending_user(current_user, user_id):
+    """
+    POST /api/admin/users/<id>/reject
+    Reject a pending user registration.  The user record is deleted and the
+    applicant is notified by email with the optional rejection reason.
+    """
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    data   = request.get_json(silent=True) or {}
+    reason = (data.get("reason") or "").strip() or None
+
+    # Capture details before deletion for logging / email
+    email      = user.email
+    first_name = user.first_name
+    role       = user.role
+
+    _write_audit_log(
+        current_user.id,
+        "admin.reject_user",
+        f"rejected user_id={user_id} role={role} reason={reason!r}",
+        council_id=user.council_id,
+    )
+
+    db.session.delete(user)
+    db.session.commit()
+
+    logger.info("User rejected: user_id=%d by actor_id=%d", user_id, current_user.id)
+
+    # Notify the applicant (best-effort)
+    try:
+        from app.common import email_service
+        from app.common.email_service import send_email
+        subject = "Your GrantThrive registration could not be approved"
+        body_lines = [
+            f"<p>Hi {first_name},</p>",
+            "<p>Thank you for registering with GrantThrive. Unfortunately, we were unable "
+            "to approve your account at this time.</p>",
+        ]
+        if reason:
+            body_lines.append(f"<p><strong>Reason:</strong> {reason}</p>")
+        body_lines.append(
+            "<p>If you believe this is an error, please contact "
+            "<a href='mailto:support@grantthrive.com.au'>support@grantthrive.com.au</a>.</p>"
+        )
+        send_email(email, subject, "".join(body_lines))
+    except Exception as _e:
+        logger.warning("Rejection email failed for user_id=%d: %s", user_id, _e)
+
+    return jsonify({"message": "Registration rejected and applicant notified."}), 200
