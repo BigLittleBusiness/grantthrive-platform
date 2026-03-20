@@ -487,15 +487,28 @@ def approve_pending_user(current_user, user_id):
             # Fall back to email local-part
             raw_subdomain = Council.make_subdomain(user.email.split('@')[0])
 
-        # Ensure subdomain (and slug) are unique
+        # Block approval if the requested subdomain is already taken.
+        # The registrant must choose a different subdomain before this
+        # account can be approved.  This prevents silent URL collisions
+        # between same-name councils in different states.
         subdomain = raw_subdomain
-        attempt = 0
-        while (
+        if (
             Council.query.filter_by(subdomain=subdomain).first()
             or Council.query.filter_by(slug=subdomain).first()
         ):
-            attempt += 1
-            subdomain = f"{raw_subdomain}{attempt}"
+            logger.warning(
+                "Approval blocked: subdomain '%s' already in use (user_id=%d)",
+                subdomain, user_id,
+            )
+            return jsonify({
+                "error": (
+                    f"The requested subdomain \u2018{subdomain}\u2019 is already in use by another council. "
+                    "Please contact the applicant to choose a different subdomain, "
+                    "then update their requested subdomain before approving."
+                ),
+                "conflict": "subdomain_taken",
+                "subdomain": subdomain,
+            }), 409
 
         council = Council(
             name          = user.organisation or f"{user.first_name} {user.last_name}'s Council",
@@ -594,3 +607,74 @@ def reject_pending_user(current_user, user_id):
         logger.warning("Rejection email failed for user_id=%d: %s", user_id, _e)
 
     return jsonify({"message": "Registration rejected and applicant notified."}), 200
+
+
+@bp.route('/admin/users/<int:user_id>/subdomain', methods=['PATCH'])
+@role_required('system_admin')
+def update_pending_user_subdomain(current_user, user_id):
+    """
+    PATCH /api/admin/users/<id>/subdomain
+    Allow a system admin to update the requested_subdomain on a pending
+    council_admin registration before approving it.  This is used to resolve
+    subdomain conflicts (e.g. two councils with the same name in different states).
+
+    Body: { "subdomain": "campbelltown-sa" }
+    Returns: 200 { "message": "...", "subdomain": "campbelltown-sa" }
+             409 if the new subdomain is also already taken
+             400 if the subdomain fails format validation
+    """
+    from app.models import Council
+    import re as _re
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+    if user.role != 'council_admin':
+        return jsonify({"error": "Only council_admin registrations have a subdomain."}), 400
+
+    data = request.get_json(silent=True) or {}
+    new_sub = (data.get("subdomain") or "").strip().lower()
+    new_sub = _re.sub(r'[^a-z0-9-]', '', new_sub)
+
+    if not new_sub or not _re.match(r'^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$', new_sub):
+        return jsonify({
+            "error": (
+                "Subdomain must be 3–64 characters, contain only lowercase letters, "
+                "numbers, and hyphens, and must not start or end with a hyphen."
+            )
+        }), 400
+
+    reserved = {
+        'www', 'app', 'admin', 'api', 'map', 'roi',
+        'staging', 'dev', 'test', 'mail', 'smtp',
+        'grantthrive', 'support', 'help', 'status',
+    }
+    if new_sub in reserved:
+        return jsonify({"error": f'"{new_sub}" is a reserved subdomain and cannot be used.'}), 400
+
+    if (
+        Council.query.filter_by(subdomain=new_sub).first()
+        or Council.query.filter_by(slug=new_sub).first()
+    ):
+        return jsonify({
+            "error": f"The subdomain \u2018{new_sub}\u2019 is already in use. Please choose a different one.",
+            "conflict": "subdomain_taken",
+        }), 409
+
+    old_sub = user.requested_subdomain
+    user.requested_subdomain = new_sub
+    _write_audit_log(
+        current_user.id,
+        "admin.update_user_subdomain",
+        f"updated requested_subdomain for user_id={user_id}: {old_sub!r} → {new_sub!r}",
+        council_id=user.council_id,
+    )
+    db.session.commit()
+    logger.info(
+        "Subdomain updated for user_id=%d: %r → %r by actor_id=%d",
+        user_id, old_sub, new_sub, current_user.id,
+    )
+    return jsonify({
+        "message": f"Subdomain updated to \u2018{new_sub}\u2019. You can now approve the registration.",
+        "subdomain": new_sub,
+    }), 200
