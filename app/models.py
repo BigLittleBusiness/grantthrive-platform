@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from app.common.password import hash_password, verify_password
 from app.common.encryption import EncryptedString, hmac_index
 from sqlalchemy import Numeric
+from sqlalchemy.orm import validates
 import qrcode
 import io
 import base64
@@ -161,11 +161,27 @@ class User(UserMixin, db.Model):
     applications   = db.relationship('Application', backref='applicant', lazy='dynamic')
     reviews        = db.relationship('Review', backref='reviewer', lazy='dynamic')
 
+    @validates('email')
+    def _validate_and_index_email(self, key, email):
+        """
+        Normalise email and populate the deterministic HMAC index automatically.
+
+        This ensures email_hmac is always set even if callers assign
+        `user.email = ...` directly instead of calling `set_email()`.
+        """
+        if email is None:
+            raise ValueError("Email cannot be None")
+
+        normalised = email.strip().lower()
+        if not normalised:
+            raise ValueError("Email cannot be empty")
+
+        self.email_hmac = hmac_index(normalised)
+        return normalised
+
     def set_email(self, email: str) -> None:
         """Set the email field and update the HMAC search index atomically."""
-        normalised = email.strip().lower()
-        self.email      = normalised          # stored encrypted via EncryptedString
-        self.email_hmac = hmac_index(normalised)  # searchable HMAC index
+        self.email = email  # validator normalises + sets email_hmac
 
     def set_password(self, password: str) -> None:
         """Hash password using Argon2id and store the encoded hash."""

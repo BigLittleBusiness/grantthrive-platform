@@ -1,6 +1,6 @@
 """
 GrantThrive — Application Factory
-====================================
+=================================
 Creates and configures the Flask application instance.
 
 Blueprint layout:
@@ -14,7 +14,7 @@ Blueprint layout:
   /api/health    — Health-check endpoint for CI/CD and load-balancer probes
 
 Blueprints for grants, applications, reviews, and admin are intentionally
-omitted until those features are built.  They will be added here when ready.
+omitted until those features are built. They will be added here when ready.
   /api/system-admins — System admin user management (GrantThrive staff CRUD)
 """
 
@@ -60,38 +60,81 @@ def create_app(config_class=Config):
     ):
         if app.config.get("SECRET_KEY") == "change-me-in-production":
             raise RuntimeError(
-                "FATAL: SECRET_KEY has not been set.  "
+                "FATAL: SECRET_KEY has not been set. "
                 "Set a strong random SECRET_KEY environment variable before "
                 "starting the application in production."
             )
-    # ── Extensions ──────────────────────────────────────────────────────────────
+
+    # ── Extensions ──────────────────────────────────────────────────────────
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     mail.init_app(app)
     limiter.init_app(app)
-    # ── CORS ──────────────────────────────────────────────────────────────────
-    # All five UI apps are served from subdomains of grantthrive.com and share
-    # the same JWT-based SSO session.  Council tenant portals are served from
-    # <subdomain>.grantthrive.com — the wildcard pattern covers all of them.
-    # In development, localhost ports are also permitted.
-    # The wildcard origin ("*") is intentionally NOT used so that
-    # supports_credentials=True works correctly (browsers reject wildcard +
-    # credentials).
-    allowed_origins = app.config.get("CORS_ORIGINS", [
-        # Production — fixed subdomains
-        "https://grantthrive.com",
-        "https://app.grantthrive.com",
-        "https://admin.grantthrive.com",
-        "https://map.grantthrive.com",
-        "https://roi.grantthrive.com",
-        # Production — council tenant portals (wildcard pattern)
-        r"https://.*\.grantthrive\.com",
-        # Local development (Vite default ports)
-        "http://localhost:5173"
-    ])
-    CORS(app, origins=allowed_origins, supports_credentials=True)
-    # ── Optional performance optimizations ────────────────────────────────────
+
+    # ── CORS ────────────────────────────────────────────────────────────────
+    # All UI apps are served from subdomains of granthrive.com and share
+    # JWT-based auth. Council tenant portals are served from
+    # <tenant>.granthrive.com — the regex covers all of them.
+    #
+    # supports_credentials=True means:
+    # - do NOT use "*"
+    # - browser must see an explicit allowed origin
+    #
+    # Note:
+    # - regex origins work with Flask-CORS
+    # - include localhost ports used by Vite / React dev servers
+    allowed_origins = app.config.get(
+        "CORS_ORIGINS",
+        [
+            # Production root / fixed apps
+            "https://granthrive.com",
+            "https://www.granthrive.com",
+            "https://app.granthrive.com",
+            "https://admin.granthrive.com",
+            "https://map.granthrive.com",
+            "https://roi.granthrive.com",
+
+            # Tenant portals
+            r"https://.*\.granthrive\.com",
+
+            # Local development
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:4173",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://127.0.0.1:4173",
+            "http://127.0.0.1:5173",
+        ],
+    )
+
+    CORS(
+        app,
+        resources={
+            r"/auth/*": {"origins": allowed_origins},
+            r"/api/*": {"origins": allowed_origins},
+            r"/public/*": {"origins": allowed_origins},
+            r"/reports/*": {"origins": allowed_origins},
+            r"/workflows/*": {"origins": allowed_origins},
+            r"/voting/*": {"origins": allowed_origins},
+            r"/mapping/*": {"origins": allowed_origins},
+            r"/*": {"origins": allowed_origins},  # fallback
+        },
+        supports_credentials=True,
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "Accept",
+            "Origin",
+        ],
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        expose_headers=["Content-Disposition"],
+    )
+
+    # ── Optional performance optimizations ─────────────────────────────────
     try:
         from app.optimizations import (
             init_optimizations,
@@ -104,14 +147,14 @@ def create_app(config_class=Config):
     except ImportError:
         pass  # Optimizations module not available — safe to skip
 
-    # ── Flask-Login configuration ─────────────────────────────────────────────
+    # ── Flask-Login configuration ───────────────────────────────────────────
     # The login_view is only used for server-rendered redirects (legacy).
     # All React apps use the JWT-based /auth/login endpoint instead.
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Please log in to access this page."
     login_manager.login_message_category = "info"
 
-    # ── Blueprint registration ────────────────────────────────────────────────
+    # ── Blueprint registration ──────────────────────────────────────────────
 
     # Core authentication (JWT-based SSO)
     from app.auth import bp as auth_bp
@@ -149,7 +192,8 @@ def create_app(config_class=Config):
     from app.tenancy.routes import councils_bp
     app.register_blueprint(councils_bp, url_prefix="/api")
 
-    # System Admin: GrantThrive staff management (add/edit/deactivate system_admin users)
+    # System Admin: GrantThrive staff management
+    # (add/edit/deactivate system_admin users)
     from app.system_admin import bp as system_admin_bp
     app.register_blueprint(system_admin_bp, url_prefix="/api")
 
@@ -157,35 +201,46 @@ def create_app(config_class=Config):
     from app.pricing import pricing_bp
     app.register_blueprint(pricing_bp)
 
-    # Forum: community discussion forums (council staff ↔ community)
+    # Forum: community discussion forums
     from app.forum import forum_bp
-    app.register_blueprint(forum_bp, url_prefix='/api')
+    app.register_blueprint(forum_bp, url_prefix="/api")
 
     # Notifications: in-app notification bell API
     from app.notifications import bp as notifications_bp
     app.register_blueprint(notifications_bp)
 
-    # ── Tenant resolution middleware ──────────────────────────────────────────
-    # Runs before every request to resolve the council tenant from the subdomain.
+    # ── Tenant resolution middleware ────────────────────────────────────────
+    # Runs before every request to resolve the council tenant from subdomain.
     from app.tenancy.middleware import resolve_tenant
-    app.before_request(resolve_tenant)
 
-    # ── Template filters ──────────────────────────────────────────────────────
+    @app.before_request
+    def resolve_tenant_safe():
+        # Let CORS preflight pass cleanly
+        from flask import request
+        if request.method == "OPTIONS":
+            return None
+        return resolve_tenant()
+
+    # ── Template filters ────────────────────────────────────────────────────
     from app.common.formatters import register_template_filters
     register_template_filters(app)
 
-    # ── Background scheduler (timed notification nudges) ──────────────────────
+    # ── Background scheduler (timed notification nudges) ───────────────────
     import os
     # Only start in the main process (not the Werkzeug reloader child)
-    if not app.testing and os.environ.get('WERKZEUG_RUN_MAIN') != 'false':
+    if not app.testing and os.environ.get("WERKZEUG_RUN_MAIN") != "false":
         from app.common.scheduled_jobs import init_scheduler
         init_scheduler(app)
+
+    # ── Optional debug endpoint: useful while testing CORS locally ──────────
+    @app.get("/api/health")
+    def health_check():
+        return {"status": "ok", "service": "GrantThrive API"}, 200
 
     return app
 
 
 # ── Flask-Login user loader ───────────────────────────────────────────────────
-
 @login_manager.user_loader
 def load_user(user_id: str):
     """Load a user by their primary key for Flask-Login session management."""
