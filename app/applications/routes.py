@@ -88,6 +88,7 @@ def _can_access_application(user, application: Application) -> bool:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@bp.route("", methods=["GET"])
 @bp.route("/", methods=["GET"])
 @permission_required("applications:read_own")
 def list_applications(current_user):
@@ -138,6 +139,7 @@ def get_application(current_user, app_id):
     return jsonify(_app_to_dict(application, detail=True)), 200
 
 
+@bp.route("", methods=["POST"])
 @bp.route("/", methods=["POST"])
 @permission_required("applications:create")
 def create_application(current_user):
@@ -252,28 +254,22 @@ def submit_application(current_user, app_id):
     application.status       = "submitted"
     application.submitted_at = datetime.now(timezone.utc)
     application.updated_at   = datetime.now(timezone.utc)
-    db.session.flush()  # get application.id before commit
+    db.session.flush()
 
-    # ── Auto-assign nominated reviewers ──────────────────────────────────────
-    # If the grant has a pre-configured assessment team, create an
-    # ApplicationAssignment row for each nominated reviewer so the application
-    # appears in their Pending Approvals queue immediately.
     reviewer_ids = json.loads(grant.assigned_reviewer_ids or '[]')
     if reviewer_ids:
         for staff_id in reviewer_ids:
-            # Skip if an assignment already exists (idempotent)
             existing = ApplicationAssignment.query.filter_by(
                 application_id=application.id, staff_id=staff_id
             ).first()
             if not existing:
                 db.session.add(ApplicationAssignment(
-                    application_id = application.id,
-                    staff_id       = staff_id,
-                    assigned_by    = current_user.id,  # system-generated; applicant is the trigger
-                    status         = 'assigned',
-                    notes          = 'Auto-assigned on submission',
+                    application_id=application.id,
+                    staff_id=staff_id,
+                    assigned_by=current_user.id,
+                    status='assigned',
+                    notes='Auto-assigned on submission',
                 ))
-        # Move straight to under_review since reviewers are already assigned
         application.status = 'under_review'
         logger.info(
             "Application %d auto-assigned to %d reviewer(s) on submission",
@@ -284,12 +280,11 @@ def submit_application(current_user, app_id):
 
     logger.info("Application submitted: id=%d by user_id=%d", application.id, current_user.id)
 
-    # ── Notifications: alert council admins + assigned reviewers ──
     try:
         from app.common.notifications import notify
         from app.common import email_service
         from app.models import User as _User
-        # Notify all council_admin users in this council
+
         admins = _User.query.filter_by(
             council_id=grant.council_id, role='council_admin', is_active=True
         ).all()
@@ -304,7 +299,7 @@ def submit_application(current_user, app_id):
                     a.email, a.first_name, grant.title, application.id, grant.council.name
                 ),
             )
-        # Notify each auto-assigned reviewer
+
         for staff_id in reviewer_ids:
             reviewer = db.session.get(_User, staff_id)
             if reviewer:
@@ -344,27 +339,27 @@ def review_application(current_user, app_id):
     ).first()
 
     if existing:
-        existing.comments       = data.get("comments", existing.comments)
+        existing.comments = data.get("comments", existing.comments)
         existing.recommendation = data.get("recommendation", existing.recommendation)
-        existing.total_score    = data.get("total_score", existing.total_score)
-        existing.is_complete    = data.get("is_complete", existing.is_complete)
+        existing.total_score = data.get("total_score", existing.total_score)
+        existing.is_complete = data.get("is_complete", existing.is_complete)
         if existing.is_complete:
             existing.submitted_at = datetime.now(timezone.utc)
         review = existing
     else:
         review = Review(
-            application_id = application.id,
-            reviewer_id    = current_user.id,
-            comments       = data.get("comments"),
-            recommendation = data.get("recommendation"),
-            total_score    = data.get("total_score", 0.0),
-            is_complete    = data.get("is_complete", False),
-            submitted_at   = datetime.now(timezone.utc) if data.get("is_complete") else None,
+            application_id=application.id,
+            reviewer_id=current_user.id,
+            comments=data.get("comments"),
+            recommendation=data.get("recommendation"),
+            total_score=data.get("total_score", 0.0),
+            is_complete=data.get("is_complete", False),
+            submitted_at=datetime.now(timezone.utc) if data.get("is_complete") else None,
         )
         db.session.add(review)
 
     if application.status == "submitted":
-        application.status      = "under_review"
+        application.status = "under_review"
         application.reviewed_at = datetime.now(timezone.utc)
 
     application.calculate_scores()
@@ -372,8 +367,8 @@ def review_application(current_user, app_id):
     db.session.commit()
 
     return jsonify({
-        "message":     "Review submitted.",
-        "review_id":   review.id,
+        "message": "Review submitted.",
+        "review_id": review.id,
         "application": _app_to_dict(application, detail=True),
     }), 200
 
@@ -383,13 +378,6 @@ def review_application(current_user, app_id):
 def approve_application(current_user, app_id):
     """
     Record an approval from the current staff member.
-
-    Multi-approve logic:
-    - Marks the current user's ApplicationAssignment as 'completed'.
-    - Counts how many distinct staff members have completed their assignment.
-    - Compares against grant.required_approvals.
-    - Only transitions the application to 'approved' once the threshold is met.
-    - Council admin and system_admin can force-approve regardless of threshold.
     """
     application = db.session.get(Application, app_id)
     if not application:
@@ -401,50 +389,44 @@ def approve_application(current_user, app_id):
 
     grant = db.session.get(Grant, application.grant_id)
     required = grant.required_approvals if grant else 1
-
-    # Force-approve path for council_admin / system_admin
     force = current_user.role in ('council_admin', 'system_admin')
 
-    # Mark this staff member's assignment as completed
     assignment = ApplicationAssignment.query.filter_by(
         application_id=app_id, staff_id=current_user.id
     ).first()
     if assignment:
         assignment.status = 'completed'
     else:
-        # Create an implicit assignment if one doesn't exist (e.g. admin approving directly)
         assignment = ApplicationAssignment(
-            application_id = app_id,
-            staff_id       = current_user.id,
-            assigned_by    = current_user.id,
-            status         = 'completed',
-            notes          = 'Direct approval',
+            application_id=app_id,
+            staff_id=current_user.id,
+            assigned_by=current_user.id,
+            status='completed',
+            notes='Direct approval',
         )
         db.session.add(assignment)
 
     db.session.flush()
 
-    # Count completed approvals
     completed_count = ApplicationAssignment.query.filter_by(
         application_id=app_id, status='completed'
     ).count()
 
     if force or completed_count >= required:
-        application.status        = 'approved'
+        application.status = 'approved'
         application.decision_date = datetime.now(timezone.utc)
-        application.updated_at    = datetime.now(timezone.utc)
+        application.updated_at = datetime.now(timezone.utc)
         db.session.commit()
         logger.info(
             "Application approved: id=%d by user_id=%d (completed=%d required=%d)",
             application.id, current_user.id, completed_count, required
         )
-        # ── Notify the applicant ──
         try:
             from app.common.notifications import notify
             from app.common import email_service
             from app.models import User as _User, Grant as _Grant
             applicant = db.session.get(_User, application.applicant_id)
-            _grant    = db.session.get(_Grant, application.grant_id)
+            _grant = db.session.get(_Grant, application.grant_id)
             if applicant and _grant:
                 notify(
                     user_id=applicant.id,
@@ -459,10 +441,10 @@ def approve_application(current_user, app_id):
         except Exception as _ne:
             logger.warning("Approval notification failed: %s", _ne)
         return jsonify({
-            "message":          "Application approved.",
+            "message": "Application approved.",
             "approvals_recorded": completed_count,
             "required_approvals": required,
-            "application":      _app_to_dict(application),
+            "application": _app_to_dict(application),
         }), 200
     else:
         application.updated_at = datetime.now(timezone.utc)
@@ -473,10 +455,10 @@ def approve_application(current_user, app_id):
             application.id, current_user.id, completed_count, required
         )
         return jsonify({
-            "message":            f"Approval recorded. {remaining} more approval(s) required.",
-            "approvals_recorded":  completed_count,
-            "required_approvals":  required,
-            "application":         _app_to_dict(application),
+            "message": f"Approval recorded. {remaining} more approval(s) required.",
+            "approvals_recorded": completed_count,
+            "required_approvals": required,
+            "application": _app_to_dict(application),
         }), 200
 
 
@@ -492,20 +474,19 @@ def reject_application(current_user, app_id):
     if application.status not in ("submitted", "under_review", "reviewed"):
         return jsonify({"error": "Application cannot be rejected in its current state."}), 409
 
-    application.status        = "rejected"
+    application.status = "rejected"
     application.decision_date = datetime.now(timezone.utc)
-    application.updated_at    = datetime.now(timezone.utc)
+    application.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
     logger.info("Application rejected: id=%d by user_id=%d", application.id, current_user.id)
 
-    # ── Notify the applicant ──
     try:
         from app.common.notifications import notify
         from app.common import email_service
         from app.models import User as _User, Grant as _Grant
         applicant = db.session.get(_User, application.applicant_id)
-        _grant    = db.session.get(_Grant, application.grant_id)
+        _grant = db.session.get(_Grant, application.grant_id)
         if applicant and _grant:
             notify(
                 user_id=applicant.id,
@@ -533,7 +514,7 @@ def update_application_status(current_user, app_id):
     if not _can_access_application(current_user, application):
         return jsonify({"error": "Access denied."}), 403
 
-    data   = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True) or {}
     status = data.get("status")
 
     valid_statuses = ["draft", "submitted", "under_review", "reviewed",
@@ -544,14 +525,12 @@ def update_application_status(current_user, app_id):
     if status in ("approved", "rejected") and not has_permission(current_user, "applications:approve"):
         return jsonify({"error": "Insufficient permissions to approve or reject applications."}), 403
 
-    application.status     = status
+    application.status = status
     application.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
     return jsonify({"message": f"Status updated to '{status}'.", "application": _app_to_dict(application)}), 200
 
-
-# ── Pending Approvals — staff queue ──────────────────────────────────────────
 
 @bp.route("/pending", methods=["GET"])
 @permission_required("applications:review")
@@ -574,20 +553,18 @@ def list_pending_approvals(current_user):
 
     result = []
     for app in apps:
-        # Build assignment info
         assignments = ApplicationAssignment.query.filter_by(application_id=app.id).all()
         assigned_staff = []
         for a in assignments:
             staff = db.session.get(User, a.staff_id)
             if staff:
                 assigned_staff.append({
-                    "user_id":     a.staff_id,
-                    "name":        staff.full_name,
-                    "status":      a.status,
+                    "user_id": a.staff_id,
+                    "name": staff.full_name,
+                    "status": a.status,
                     "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
                 })
 
-        # Check if current staff member is assigned
         my_assignment = next(
             (a for a in assignments if a.staff_id == current_user.id), None
         )
@@ -595,13 +572,13 @@ def list_pending_approvals(current_user):
         grant = db.session.get(Grant, app.grant_id)
         d = _app_to_dict(app)
         d.update({
-            "grant_title":      grant.title if grant else None,
-            "assigned_staff":   assigned_staff,
-            "my_assignment":    {
+            "grant_title": grant.title if grant else None,
+            "assigned_staff": assigned_staff,
+            "my_assignment": {
                 "status": my_assignment.status,
-                "notes":  my_assignment.notes,
+                "notes": my_assignment.notes,
             } if my_assignment else None,
-            "review_count":     app.reviews.filter_by(is_complete=True).count(),
+            "review_count": app.reviews.filter_by(is_complete=True).count(),
         })
         result.append(d)
 
@@ -613,9 +590,6 @@ def list_pending_approvals(current_user):
 def assign_application(current_user, app_id):
     """
     Assign a staff member to review an application.
-    Council admin can assign any staff member.
-    Council staff can only self-assign.
-    Body: { "staff_id": <int>, "notes": "<optional>" }
     """
     application = db.session.get(Application, app_id)
     if not application:
@@ -623,20 +597,17 @@ def assign_application(current_user, app_id):
     if not _can_access_application(current_user, application):
         return jsonify({"error": "Access denied."}), 403
 
-    data     = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True) or {}
     staff_id = data.get("staff_id", current_user.id)
-    notes    = (data.get("notes") or "").strip() or None
+    notes = (data.get("notes") or "").strip() or None
 
-    # council_staff can only self-assign
     if current_user.role == "council_staff" and staff_id != current_user.id:
         return jsonify({"error": "Staff members can only self-assign."}), 403
 
-    # Validate target staff member belongs to same council
     target = db.session.get(User, staff_id)
     if not target or target.council_id != current_user.council_id:
         return jsonify({"error": "Staff member not found in your council."}), 404
 
-    # Upsert assignment
     existing = ApplicationAssignment.query.filter_by(
         application_id=app_id, staff_id=staff_id
     ).first()
@@ -644,16 +615,16 @@ def assign_application(current_user, app_id):
     if existing:
         if existing.status == "recused":
             return jsonify({"error": "This staff member has recused themselves from this application."}), 409
-        existing.status     = "assigned"
-        existing.notes      = notes
+        existing.status = "assigned"
+        existing.notes = notes
         existing.updated_at = datetime.now(timezone.utc)
     else:
         assignment = ApplicationAssignment(
-            application_id = app_id,
-            staff_id       = staff_id,
-            assigned_by    = current_user.id,
-            status         = "assigned",
-            notes          = notes,
+            application_id=app_id,
+            staff_id=staff_id,
+            assigned_by=current_user.id,
+            status="assigned",
+            notes=notes,
         )
         db.session.add(assignment)
 
@@ -662,7 +633,6 @@ def assign_application(current_user, app_id):
     db.session.commit()
     logger.info("Application %d assigned to staff_id=%d by user_id=%d", app_id, staff_id, current_user.id)
 
-    # ── Notify the assigned reviewer (only if assigning someone else) ──
     if staff_id != current_user.id:
         try:
             from app.common.notifications import notify
@@ -692,7 +662,6 @@ def assign_application(current_user, app_id):
 def recuse_from_application(current_user, app_id):
     """
     Allow a staff member to recuse themselves from reviewing an application.
-    Body: { "notes": "<reason>" }
     """
     application = db.session.get(Application, app_id)
     if not application:
@@ -700,7 +669,7 @@ def recuse_from_application(current_user, app_id):
     if not _can_access_application(current_user, application):
         return jsonify({"error": "Access denied."}), 403
 
-    data  = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True) or {}
     notes = (data.get("notes") or "").strip() or None
 
     existing = ApplicationAssignment.query.filter_by(
@@ -708,16 +677,16 @@ def recuse_from_application(current_user, app_id):
     ).first()
 
     if existing:
-        existing.status     = "recused"
-        existing.notes      = notes
+        existing.status = "recused"
+        existing.notes = notes
         existing.updated_at = datetime.now(timezone.utc)
     else:
         assignment = ApplicationAssignment(
-            application_id = app_id,
-            staff_id       = current_user.id,
-            assigned_by    = current_user.id,
-            status         = "recused",
-            notes          = notes,
+            application_id=app_id,
+            staff_id=current_user.id,
+            assigned_by=current_user.id,
+            status="recused",
+            notes=notes,
         )
         db.session.add(assignment)
 
