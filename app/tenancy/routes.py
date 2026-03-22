@@ -836,9 +836,10 @@ def get_billing_info(current_user, council_id):
         return jsonify({'error': 'Access denied.'}), 403
 
     from app.common.plans import get_live_plan_pricing, plan_entitlements
-    plan_key  = council.plan or 'trial'
-    pricing   = get_live_plan_pricing()
-    plan_data = pricing.get(plan_key, {})
+    plan_key = council.plan or 'trial'
+    # get_live_plan_pricing(plan_key) requires a plan_key argument.
+    # 'trial' is not a paid plan so pricing fields will be None/absent.
+    pricing = get_live_plan_pricing(plan_key) if plan_key != 'trial' else {}
 
     return jsonify({
         'council_id':    council.id,
@@ -848,11 +849,19 @@ def get_billing_info(current_user, council_id):
         'trial_ends_at': (
             council.trial_ends_at.isoformat() if council.trial_ends_at else None
         ),
+        # Pricing values in AUD cents — frontend divides by 100 for display.
+        # Key names match what get_live_plan_pricing() actually returns.
         'billing': {
-            'monthly_price_aud': plan_data.get('monthly_price_aud'),
-            'annual_price_aud':  plan_data.get('annual_price_aud'),
-            'addon_voting_aud':  plan_data.get('addon_voting_aud'),
-            'addon_mapping_aud': plan_data.get('addon_mapping_aud'),
+            'monthly_price_aud_cents':  pricing.get('monthly_price_aud_cents'),
+            'annual_price_aud_cents':   pricing.get('annual_price_aud_cents'),
+            'addon_voting_cents':       pricing.get('addon_community_voting_cents'),
+            'addon_mapping_cents':      pricing.get('addon_grant_mapping_cents'),
+        },
+        # Council contact details (editable via PATCH /api/councils/<id>)
+        'council': {
+            'contact_email': council.contact_email,
+            'contact_phone': council.contact_phone,
+            'website_url':   council.website_url,
         },
         'entitlements': plan_entitlements(plan_key),
     }), 200
