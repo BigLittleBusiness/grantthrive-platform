@@ -853,3 +853,89 @@ class CouncilSmsUsage(db.Model):
 
     def __repr__(self):
         return f'<CouncilSmsUsage council={self.council_id} date={self.date} sent={self.messages_sent}>'
+
+# ── System Configuration ──────────────────────────────────────────────────────
+
+class SystemConfig(db.Model):
+    """
+    Platform-level configuration key/value store for GrantThrive system admins.
+
+    Sensitive values (e.g. Twilio auth tokens, API keys) are stored encrypted
+    using Fernet symmetric encryption.  The encryption key is read from the
+    SYSTEM_CONFIG_ENCRYPTION_KEY environment variable at runtime.
+
+    Usage:
+        SystemConfig.set('twilio_account_sid', 'ACxxx', sensitive=False)
+        SystemConfig.set('twilio_auth_token',  'token', sensitive=True)
+        sid   = SystemConfig.get('twilio_account_sid')
+        token = SystemConfig.get('twilio_auth_token')   # auto-decrypted
+    """
+    __tablename__ = 'system_config'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    key         = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    value       = db.Column(db.Text, nullable=True)
+    is_sensitive = db.Column(db.Boolean, nullable=False, default=False)
+    updated_at  = db.Column(db.DateTime, nullable=True)
+    updated_by  = db.Column(db.String(200), nullable=True)
+
+    def __repr__(self):
+        return f'<SystemConfig {self.key}>'
+
+    # ── Class-level helpers ───────────────────────────────────────────────────
+
+    @classmethod
+    def _fernet(cls):
+        """Return a Fernet instance using SYSTEM_CONFIG_ENCRYPTION_KEY, or None."""
+        import os
+        from cryptography.fernet import Fernet
+        key = os.environ.get('SYSTEM_CONFIG_ENCRYPTION_KEY')
+        if not key:
+            return None
+        try:
+            return Fernet(key.encode() if isinstance(key, str) else key)
+        except Exception:
+            return None
+
+    @classmethod
+    def get(cls, key: str, default=None):
+        """Retrieve a config value, decrypting if marked sensitive."""
+        row = cls.query.filter_by(key=key).first()
+        if row is None:
+            return default
+        if row.is_sensitive and row.value:
+            f = cls._fernet()
+            if f:
+                try:
+                    return f.decrypt(row.value.encode()).decode()
+                except Exception:
+                    return None
+        return row.value
+
+    @classmethod
+    def set(cls, key: str, value: str, sensitive: bool = False,
+            updated_by: str = 'system'):
+        """Insert or update a config value, encrypting if sensitive."""
+        from datetime import datetime, timezone
+        stored_value = value
+        if sensitive and value:
+            f = cls._fernet()
+            if f:
+                stored_value = f.encrypt(value.encode()).decode()
+        row = cls.query.filter_by(key=key).first()
+        if row is None:
+            row = cls(key=key)
+            db.session.add(row)
+        row.value        = stored_value
+        row.is_sensitive = sensitive
+        row.updated_at   = datetime.now(timezone.utc)
+        row.updated_by   = updated_by
+        db.session.commit()
+
+    @classmethod
+    def delete(cls, key: str):
+        """Remove a config key entirely."""
+        row = cls.query.filter_by(key=key).first()
+        if row:
+            db.session.delete(row)
+            db.session.commit()

@@ -678,3 +678,132 @@ def update_pending_user_subdomain(current_user, user_id):
         "message": f"Subdomain updated to \u2018{new_sub}\u2019. You can now approve the registration.",
         "subdomain": new_sub,
     }), 200
+
+
+# ── Twilio / SMS Configuration ────────────────────────────────────────────────
+#
+# These endpoints allow GrantThrive system admins to configure the centralised
+# Twilio account that powers SMS notifications for all council clients.
+#
+# Routes
+# ------
+#   GET    /api/system/twilio-config        — Read current config (tokens masked)
+#   PUT    /api/system/twilio-config        — Save / update config
+#   POST   /api/system/twilio-config/test   — Send a test SMS to verify credentials
+#   DELETE /api/system/twilio-config        — Clear all Twilio credentials
+#
+# Security: all routes require system_admin role.
+# Sensitive values (auth token) are stored encrypted in the system_config table.
+
+_TWILIO_KEYS = {
+    'twilio_account_sid':            False,   # not sensitive — visible in Twilio console
+    'twilio_auth_token':             True,    # sensitive — encrypted at rest
+    'twilio_messaging_service_sid':  False,   # not sensitive
+    'twilio_from_number':            False,   # fallback sender number
+    'twilio_enabled':                False,   # 'true' / 'false' toggle
+}
+
+
+def _mask(value):
+    """Return a masked version of a credential for display (last 4 chars visible)."""
+    if not value:
+        return None
+    if len(value) <= 4:
+        return '****'
+    return '\u2022' * (len(value) - 4) + value[-4:]
+
+
+@bp.route('/system/twilio-config', methods=['GET'])
+@role_required('system_admin')
+def get_twilio_config(current_user):
+    """GET /api/system/twilio-config — Returns current Twilio config. Sensitive values masked."""
+    from app.models import SystemConfig
+    config = {}
+    for key, sensitive in _TWILIO_KEYS.items():
+        raw = SystemConfig.get(key)
+        config[key] = _mask(raw) if sensitive else raw
+    config['is_configured'] = bool(
+        SystemConfig.get('twilio_account_sid') and
+        SystemConfig.get('twilio_auth_token') and
+        (SystemConfig.get('twilio_messaging_service_sid') or SystemConfig.get('twilio_from_number'))
+    )
+    config['is_enabled'] = SystemConfig.get('twilio_enabled') == 'true'
+    return jsonify({'config': config}), 200
+
+
+@bp.route('/system/twilio-config', methods=['PUT'])
+@role_required('system_admin')
+def save_twilio_config(current_user):
+    """PUT /api/system/twilio-config — Save or update Twilio credentials."""
+    from app.models import SystemConfig
+    data = request.get_json(silent=True) or {}
+    allowed = set(_TWILIO_KEYS.keys())
+    updated = []
+    for key in allowed:
+        if key not in data:
+            continue
+        value = str(data[key]).strip() if data[key] is not None else ''
+        sensitive = _TWILIO_KEYS.get(key, False)
+        if value == '':
+            SystemConfig.delete(key)
+        else:
+            SystemConfig.set(key, value, sensitive=sensitive,
+                             updated_by=f'{current_user.first_name} {current_user.last_name}')
+        updated.append(key)
+    _write_audit_log(
+        current_user.id,
+        'admin.update_twilio_config',
+        f'Updated Twilio config keys: {", ".join(updated)}',
+    )
+    logger.info('Twilio config updated by system_admin user_id=%d', current_user.id)
+    return jsonify({'message': 'Twilio configuration saved successfully.', 'updated': updated}), 200
+
+
+@bp.route('/system/twilio-config/test', methods=['POST'])
+@role_required('system_admin')
+def test_twilio_config(current_user):
+    """POST /api/system/twilio-config/test — Send a test SMS to verify credentials."""
+    from app.models import SystemConfig
+    data = request.get_json(silent=True) or {}
+    to_number = (data.get('to') or '').strip()
+    if not to_number:
+        return jsonify({'error': 'A destination phone number is required.'}), 400
+    account_sid = SystemConfig.get('twilio_account_sid')
+    auth_token  = SystemConfig.get('twilio_auth_token')
+    if not account_sid or not auth_token:
+        return jsonify({'error': 'Twilio credentials are not configured. Save your Account SID and Auth Token first.'}), 422
+    messaging_sid = SystemConfig.get('twilio_messaging_service_sid')
+    from_number   = SystemConfig.get('twilio_from_number')
+    if not messaging_sid and not from_number:
+        return jsonify({'error': 'A Messaging Service SID or From number is required.'}), 422
+    try:
+        from twilio.rest import Client as TwilioClient
+        from twilio.base.exceptions import TwilioRestException
+        client = TwilioClient(account_sid, auth_token)
+        kwargs = {
+            'body': 'This is a test SMS from GrantThrive. Your Twilio integration is working correctly.',
+            'to':   to_number,
+        }
+        if messaging_sid:
+            kwargs['messaging_service_sid'] = messaging_sid
+        else:
+            kwargs['from_'] = from_number
+        msg = client.messages.create(**kwargs)
+        _write_audit_log(current_user.id, 'admin.test_twilio_config',
+                         f'Test SMS sent to {to_number}, Twilio SID={msg.sid}')
+        return jsonify({'message': f'Test SMS sent successfully. Twilio message SID: {msg.sid}'}), 200
+    except Exception as e:
+        logger.warning('Twilio test SMS failed: %s', e)
+        return jsonify({'error': str(e)}), 422
+
+
+@bp.route('/system/twilio-config', methods=['DELETE'])
+@role_required('system_admin')
+def clear_twilio_config(current_user):
+    """DELETE /api/system/twilio-config — Remove all stored Twilio credentials."""
+    from app.models import SystemConfig
+    for key in _TWILIO_KEYS:
+        SystemConfig.delete(key)
+    _write_audit_log(current_user.id, 'admin.clear_twilio_config', 'All Twilio credentials cleared.')
+    logger.info('Twilio config cleared by system_admin user_id=%d', current_user.id)
+    return jsonify({'message': 'Twilio configuration cleared.'}), 200
