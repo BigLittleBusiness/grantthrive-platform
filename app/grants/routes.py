@@ -274,6 +274,11 @@ def create_grant(current_user):
         required_approvals=max(1, int(data.get("required_approvals", 1))),
     )
     db.session.add(grant)
+    db.session.flush()  # get grant.id before commit so QR URL is correct
+    try:
+        grant.generate_qr_code()
+    except Exception as _qe:
+        logger.warning("QR code generation failed for new grant: %s", _qe)
     db.session.commit()
 
     logger.info("Grant created: id=%d title=%s by user_id=%d", grant.id, grant.title, current_user.id)
@@ -457,4 +462,72 @@ def list_grant_reviewers(current_user, grant_id):
             }
             for u in reviewers
         ]
+    }), 200
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QR Code endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/<int:grant_id>/qr", methods=["GET"])
+@permission_required("grants:read")
+def get_grant_qr(current_user, grant_id):
+    """
+    GET /api/grants/<id>/qr
+    Return the QR code for a grant as a base64 PNG data URL.
+    If none is stored yet, generate and persist one on the fly.
+    """
+    grant = db.session.get(Grant, grant_id)
+    if not grant:
+        return jsonify({"error": "Grant not found."}), 404
+    scope_error = _assert_council_scope(current_user, grant)
+    if scope_error:
+        return scope_error
+
+    if not grant.qr_code_data:
+        grant.generate_qr_code()
+        db.session.commit()
+
+    if grant.council and getattr(grant.council, "subdomain", None):
+        target_url = f"https://{grant.council.subdomain}.grantthrive.com/grants/{grant.id}"
+    else:
+        target_url = f"https://app.grantthrive.com/grants/{grant.id}"
+
+    return jsonify({
+        "grant_id":          grant.id,
+        "grant_title":       grant.title,
+        "qr_code_data_url":  f"data:image/png;base64,{grant.qr_code_data}",
+        "target_url":        target_url,
+        "filename":          f"grant_{grant.id}_qr_code.png",
+    }), 200
+
+
+@bp.route("/<int:grant_id>/qr", methods=["POST"])
+@permission_required("grants:create")
+def regenerate_grant_qr(current_user, grant_id):
+    """
+    POST /api/grants/<id>/qr
+    Force-regenerate the QR code for a grant.
+    """
+    grant = db.session.get(Grant, grant_id)
+    if not grant:
+        return jsonify({"error": "Grant not found."}), 404
+    scope_error = _assert_council_scope(current_user, grant)
+    if scope_error:
+        return scope_error
+
+    grant.generate_qr_code()
+    db.session.commit()
+
+    if grant.council and getattr(grant.council, "subdomain", None):
+        target_url = f"https://{grant.council.subdomain}.grantthrive.com/grants/{grant.id}"
+    else:
+        target_url = f"https://app.grantthrive.com/grants/{grant.id}"
+
+    return jsonify({
+        "grant_id":          grant.id,
+        "grant_title":       grant.title,
+        "qr_code_data_url":  f"data:image/png;base64,{grant.qr_code_data}",
+        "target_url":        target_url,
+        "filename":          f"grant_{grant.id}_qr_code.png",
+        "message":           "QR code regenerated successfully.",
     }), 200
