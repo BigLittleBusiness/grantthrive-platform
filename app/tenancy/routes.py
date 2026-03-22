@@ -856,3 +856,176 @@ def get_billing_info(current_user, council_id):
         },
         'entitlements': plan_entitlements(plan_key),
     }), 200
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Council-level staff approval endpoints
+# These allow a council_admin to list, approve, and reject pending staff
+# accounts that are in the approval queue (is_active=False, is_approved=False)
+# for their council.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@councils_bp.route('/councils/<int:council_id>/staff/pending', methods=['GET'])
+@token_required
+def list_pending_staff(current_user, council_id):
+    """
+    GET /api/councils/<id>/staff/pending
+    Return all staff accounts for this council that are awaiting approval
+    (is_active=False, is_approved=False).
+    Accessible by: council_admin (own council), system_admin.
+    """
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    pending = (
+        User.query
+        .filter_by(council_id=council_id, is_active=False, is_approved=False)
+        .filter(User.role.in_(['council_staff', 'council_admin']))
+        .order_by(User.created_at.asc())
+        .all()
+    )
+    return jsonify({
+        'pending_staff': [
+            {
+                'id':         u.id,
+                'email':      u.email,
+                'full_name':  u.full_name,
+                'first_name': u.first_name,
+                'last_name':  u.last_name,
+                'role':       u.role,
+                'position':   getattr(u, 'position', None),
+                'department': getattr(u, 'department', None),
+                'phone':      getattr(u, 'phone', None),
+                'created_at': u.created_at.isoformat() if getattr(u, 'created_at', None) else None,
+            }
+            for u in pending
+        ],
+        'count': len(pending),
+    }), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/staff/<int:user_id>/approve', methods=['POST'])
+@token_required
+def approve_staff_member(current_user, council_id, user_id):
+    """
+    POST /api/councils/<id>/staff/<user_id>/approve
+    Approve a pending staff account, setting is_active=True, is_approved=True.
+    Accessible by: council_admin (own council), system_admin.
+    """
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    user = db.session.get(User, user_id)
+    if not user or user.council_id != council_id:
+        return jsonify({'error': 'Staff member not found in this council.'}), 404
+    if user.is_active and user.is_approved:
+        return jsonify({'error': 'Staff member is already approved and active.'}), 409
+
+    user.is_active   = True
+    user.is_approved = True
+    db.session.commit()
+
+    logger.info(
+        "Staff approved: user_id=%d council_id=%d by actor_id=%d",
+        user_id, council_id, current_user.id,
+    )
+
+    # Notify the staff member (best-effort)
+    try:
+        from app.common.notifications import notify
+        from app.common import email_service
+        notify(
+            user_id=user.id,
+            ntype='account_approved',
+            title='Your account has been approved',
+            message=f'Your account for {council.name} has been approved. You can now log in.',
+            link='portal/council/dashboard',
+            send_email_fn=lambda: email_service.send_welcome_getting_started(
+                user.email, user.first_name
+            ),
+        )
+    except Exception as _ne:
+        logger.warning("Staff approval notification failed for user_id=%d: %s", user_id, _ne)
+
+    return jsonify({
+        'message': f'Staff member "{user.email}" approved and activated.',
+        'user': {
+            'id':        user.id,
+            'email':     user.email,
+            'full_name': user.full_name,
+            'role':      user.role,
+            'is_active': user.is_active,
+        },
+    }), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/staff/<int:user_id>/reject', methods=['POST'])
+@token_required
+def reject_staff_member(current_user, council_id, user_id):
+    """
+    POST /api/councils/<id>/staff/<user_id>/reject
+    Reject a pending staff account. Deletes the user record and notifies them.
+    Accessible by: council_admin (own council), system_admin.
+    Body (optional): { "reason": "..." }
+    """
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    user = db.session.get(User, user_id)
+    if not user or user.council_id != council_id:
+        return jsonify({'error': 'Staff member not found in this council.'}), 404
+
+    data       = request.get_json(silent=True) or {}
+    reason     = (data.get('reason') or '').strip() or None
+    email      = user.email
+    first_name = user.first_name
+
+    db.session.delete(user)
+    db.session.commit()
+
+    logger.info(
+        "Staff rejected: user_id=%d council_id=%d by actor_id=%d reason=%r",
+        user_id, council_id, current_user.id, reason,
+    )
+
+    # Notify the applicant (best-effort)
+    try:
+        from app.common import email_service
+        from app.common.email_service import send_email
+        subject    = 'Your GrantThrive staff account request was not approved'
+        body_lines = [
+            f'<p>Hi {first_name},</p>',
+            f'<p>Your request to join <strong>{council.name}</strong> on GrantThrive '
+            'could not be approved at this time.</p>',
+        ]
+        if reason:
+            body_lines.append(f'<p><strong>Reason:</strong> {reason}</p>')
+        body_lines.append(
+            '<p>If you believe this is an error, please contact your Council Administrator.</p>'
+        )
+        send_email(email, subject, ''.join(body_lines))
+    except Exception as _ne:
+        logger.warning("Staff rejection email failed for user_id=%d: %s", user_id, _ne)
+
+    return jsonify({'message': 'Staff member rejected and notified.'}), 200

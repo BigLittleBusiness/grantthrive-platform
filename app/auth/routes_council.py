@@ -133,8 +133,8 @@ def _register_council_user(data: dict):
         phone=phone,
         role="council_admin",
         council_id=council_id,
-        is_active=True,      # pending system_admin approval
-        is_approved=True,
+        is_active=False,     # account is inactive until system_admin approves
+        is_approved=False,   # pending system_admin approval
         organisation=organisation,
         abn=abn,
         email_opt_in=email_opt_in,
