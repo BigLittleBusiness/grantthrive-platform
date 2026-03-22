@@ -57,6 +57,8 @@ class Council(db.Model):
     # SMS add-on — enabled by GrantThrive when council is on a qualifying plan
     # or has purchased the SMS add-on.  Councils never enter Twilio credentials.
     addon_sms              = db.Column(db.Boolean, default=False)
+    # SMS tier selected by the council: starter|growth|professional|enterprise
+    sms_tier               = db.Column(db.String(20), nullable=True)
     # Per-council SMS preferences (stored as JSON)
     sms_event_prefs        = db.Column(db.JSON, nullable=True)   # {event_type: bool}
     sms_business_hours_only= db.Column(db.Boolean, default=True)
@@ -114,6 +116,7 @@ class Council(db.Model):
             'addon_community_voting': self.addon_community_voting,
             'addon_grant_mapping':    self.addon_grant_mapping,
             'addon_sms':              self.addon_sms,
+            'sms_tier':               self.sms_tier,
             'sms_event_prefs':        self.sms_event_prefs,
             'sms_business_hours_only':self.sms_business_hours_only,
             'sms_timezone':           self.sms_timezone,

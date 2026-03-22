@@ -1171,3 +1171,168 @@ def _default_sms_prefs() -> dict:
         'payment_processed':    True,
         'voting_reminder':      True,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SMS Add-on Tier Selection
+# Councils self-select their SMS tier from Account & Billing or Communications
+# Settings.  Selecting a tier sets addon_sms=True and records the chosen tier.
+# Cancellation sets addon_sms=False and clears the tier.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tier definitions — kept in sync with the pricing model document.
+SMS_TIERS = {
+    'starter': {
+        'name':              'SMS Starter',
+        'included_messages': 500,
+        'price_aud_cents':   1900,   # $19/mo
+        'overage_cents':     15,     # $0.15/msg
+        'min_plan':          'small',
+    },
+    'growth': {
+        'name':              'SMS Growth',
+        'included_messages': 2000,
+        'price_aud_cents':   6900,   # $69/mo
+        'overage_cents':     15,
+        'min_plan':          'small',
+    },
+    'professional': {
+        'name':              'SMS Professional',
+        'included_messages': 10000,
+        'price_aud_cents':   19900,  # $199/mo
+        'overage_cents':     12,
+        'min_plan':          'medium',
+    },
+    'enterprise': {
+        'name':              'SMS Enterprise',
+        'included_messages': 50000,
+        'price_aud_cents':   59900,  # $599/mo
+        'overage_cents':     10,
+        'min_plan':          'large',
+    },
+}
+
+# Plan hierarchy for eligibility checks
+_PLAN_RANK = {'trial': 0, 'small': 1, 'medium': 2, 'large': 3}
+
+
+def _plan_qualifies(council_plan: str, min_plan: str) -> bool:
+    """Return True if council_plan meets or exceeds min_plan."""
+    return _PLAN_RANK.get(council_plan, 0) >= _PLAN_RANK.get(min_plan, 99)
+
+
+@councils_bp.route('/councils/<int:council_id>/sms-tiers', methods=['GET'])
+@token_required
+def get_sms_tiers(current_user, council_id):
+    """Return available SMS tiers and the council's current selection."""
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    council_plan = council.plan or 'trial'
+
+    tiers = []
+    for key, t in SMS_TIERS.items():
+        eligible = _plan_qualifies(council_plan, t['min_plan'])
+        tiers.append({
+            'key':               key,
+            'name':              t['name'],
+            'included_messages': t['included_messages'],
+            'price_aud_cents':   t['price_aud_cents'],
+            'overage_cents':     t['overage_cents'],
+            'min_plan':          t['min_plan'],
+            'eligible':          eligible,
+        })
+
+    return jsonify({
+        'tiers':        tiers,
+        'current_tier': council.sms_tier,
+        'addon_sms':    council.addon_sms,
+        'council_plan': council_plan,
+    }), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/sms-tiers', methods=['POST'])
+@token_required
+def select_sms_tier(current_user, council_id):
+    """Select or change the SMS add-on tier for a council.
+
+    Body: { "tier": "starter" | "growth" | "professional" | "enterprise" }
+    """
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    tier_key = data.get('tier', '').lower().strip()
+
+    if tier_key not in SMS_TIERS:
+        return jsonify({'error': f'Invalid tier. Choose from: {", ".join(SMS_TIERS)}'}), 400
+
+    tier = SMS_TIERS[tier_key]
+    council_plan = council.plan or 'trial'
+
+    if not _plan_qualifies(council_plan, tier['min_plan']):
+        return jsonify({
+            'error': (
+                f'The {tier["name"]} tier requires the '
+                f'{tier["min_plan"].title()} Council plan or higher. '
+                f'Your current plan is {council_plan.title()} Council.'
+            )
+        }), 403
+
+    previous_tier = council.sms_tier
+    council.sms_tier  = tier_key
+    council.addon_sms = True
+    db.session.commit()
+
+    logger.info(
+        "SMS tier selected: council_id=%d tier=%s (was %s) by user_id=%d",
+        council_id, tier_key, previous_tier, current_user.id,
+    )
+
+    return jsonify({
+        'message':      f'SMS {tier["name"]} add-on activated successfully.',
+        'tier':         tier_key,
+        'tier_details': tier,
+        'addon_sms':    True,
+    }), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/sms-tiers', methods=['DELETE'])
+@token_required
+def cancel_sms_tier(current_user, council_id):
+    """Cancel the SMS add-on for a council."""
+    council = db.session.get(Council, council_id)
+    if not council:
+        return jsonify({'error': 'Council not found.'}), 404
+
+    is_system_admin = current_user.role == 'system_admin'
+    is_own_admin    = (current_user.role == 'council_admin' and
+                       current_user.council_id == council_id)
+    if not is_system_admin and not is_own_admin:
+        return jsonify({'error': 'Access denied.'}), 403
+
+    previous_tier     = council.sms_tier
+    council.sms_tier  = None
+    council.addon_sms = False
+    db.session.commit()
+
+    logger.info(
+        "SMS tier cancelled: council_id=%d (was %s) by user_id=%d",
+        council_id, previous_tier, current_user.id,
+    )
+
+    return jsonify({'message': 'SMS add-on cancelled successfully.'}), 200
