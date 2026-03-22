@@ -54,6 +54,13 @@ class Council(db.Model):
     # Add-ons (purchasable by Small Council only)
     addon_community_voting = db.Column(db.Boolean, default=False)
     addon_grant_mapping    = db.Column(db.Boolean, default=False)
+    # SMS add-on — enabled by GrantThrive when council is on a qualifying plan
+    # or has purchased the SMS add-on.  Councils never enter Twilio credentials.
+    addon_sms              = db.Column(db.Boolean, default=False)
+    # Per-council SMS preferences (stored as JSON)
+    sms_event_prefs        = db.Column(db.JSON, nullable=True)   # {event_type: bool}
+    sms_business_hours_only= db.Column(db.Boolean, default=True)
+    sms_timezone           = db.Column(db.String(60), default='Australia/Sydney')
 
     # Metadata
     created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -106,6 +113,10 @@ class Council(db.Model):
             'is_active':        self.is_active,
             'addon_community_voting': self.addon_community_voting,
             'addon_grant_mapping':    self.addon_grant_mapping,
+            'addon_sms':              self.addon_sms,
+            'sms_event_prefs':        self.sms_event_prefs,
+            'sms_business_hours_only':self.sms_business_hours_only,
+            'sms_timezone':           self.sms_timezone,
             'portal_url':       self.portal_url(),
             'created_at':       self.created_at.isoformat() if self.created_at else None,
         }
@@ -817,3 +828,25 @@ class Notification(db.Model):
 
     def __repr__(self):
         return f'<Notification user={self.user_id} type={self.type!r} read={self.is_read}>'
+
+
+# ── CouncilSmsUsage ───────────────────────────────────────────────────────────
+
+class CouncilSmsUsage(db.Model):
+    """
+    Daily SMS usage counter per council.
+    Used for billing reconciliation and plan enforcement.
+    """
+    __tablename__ = 'council_sms_usage'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    council_id = db.Column(db.Integer, db.ForeignKey('councils.id'), nullable=False, index=True)
+    date       = db.Column(db.Date, nullable=False, index=True)
+    messages_sent = db.Column(db.Integer, nullable=False, default=0)
+
+    __table_args__ = (db.UniqueConstraint('council_id', 'date', name='uq_council_sms_date'),)
+
+    council = db.relationship('Council', backref=db.backref('sms_usage', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<CouncilSmsUsage council={self.council_id} date={self.date} sent={self.messages_sent}>'

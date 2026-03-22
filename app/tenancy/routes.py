@@ -1038,3 +1038,136 @@ def reject_staff_member(current_user, council_id, user_id):
         logger.warning("Staff rejection email failed for user_id=%d: %s", user_id, _ne)
 
     return jsonify({'message': 'Staff member rejected and notified.'}), 200
+
+
+# ── SMS Settings ──────────────────────────────────────────────────────────────
+
+@councils_bp.route('/councils/<int:council_id>/sms-settings', methods=['GET'])
+@token_required
+@role_required('council_admin', 'system_admin')
+def get_sms_settings(current_user, council_id):
+    """Return SMS settings and entitlement status for a council."""
+    if current_user.role == 'council_admin' and current_user.council_id != council_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    council = Council.query.get_or_404(council_id)
+
+    from app.common.plans import get_plan_limits, can_use_feature
+    limits = get_plan_limits(council.plan)
+
+    return jsonify({
+        'sms_enabled':             council.addon_sms,
+        'sms_included_in_plan':    limits.sms_included,
+        'sms_addon_available':     limits.sms_addon_available,
+        'can_use_sms':             can_use_feature(council, 'sms'),
+        'sms_event_prefs':         council.sms_event_prefs or _default_sms_prefs(),
+        'sms_business_hours_only': council.sms_business_hours_only,
+        'sms_timezone':            council.sms_timezone or 'Australia/Sydney',
+        'plan':                    council.plan,
+    }), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/sms-settings', methods=['PATCH'])
+@token_required
+@role_required('council_admin', 'system_admin')
+def update_sms_settings(current_user, council_id):
+    """Update SMS notification preferences for a council."""
+    if current_user.role == 'council_admin' and current_user.council_id != council_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    council = Council.query.get_or_404(council_id)
+
+    from app.common.plans import can_use_feature
+    if not can_use_feature(council, 'sms'):
+        return jsonify({
+            'error': 'SMS is not enabled for your plan. Please upgrade or contact GrantThrive support.'
+        }), 403
+
+    data = request.get_json(silent=True) or {}
+
+    if 'sms_event_prefs' in data and isinstance(data['sms_event_prefs'], dict):
+        council.sms_event_prefs = data['sms_event_prefs']
+
+    if 'sms_business_hours_only' in data:
+        council.sms_business_hours_only = bool(data['sms_business_hours_only'])
+
+    if 'sms_timezone' in data and isinstance(data['sms_timezone'], str):
+        council.sms_timezone = data['sms_timezone'][:60]
+
+    db.session.commit()
+    return jsonify({'message': 'SMS settings updated successfully.'}), 200
+
+
+@councils_bp.route('/councils/<int:council_id>/sms-settings/test', methods=['POST'])
+@token_required
+@role_required('council_admin', 'system_admin')
+def send_test_sms(current_user, council_id):
+    """Send a test SMS to the council admin's registered phone number."""
+    if current_user.role == 'council_admin' and current_user.council_id != council_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    council = Council.query.get_or_404(council_id)
+
+    from app.common.plans import can_use_feature
+    if not can_use_feature(council, 'sms'):
+        return jsonify({'error': 'SMS is not enabled for your plan.'}), 403
+
+    phone = getattr(current_user, 'phone', None)
+    if not phone:
+        return jsonify({
+            'error': 'No phone number on your account. Please update your profile first.'
+        }), 400
+
+    from app.common.sms_service import send_sms
+    ok, result = send_sms(
+        to_phone=phone,
+        body=f"GrantThrive test message for {council.name}. SMS notifications are working correctly.",
+        council_id=council_id,
+    )
+
+    if ok:
+        return jsonify({'message': 'Test SMS sent successfully.', 'sid': result}), 200
+    return jsonify({'error': f'SMS send failed: {result}'}), 500
+
+
+@councils_bp.route('/councils/<int:council_id>/sms-usage', methods=['GET'])
+@token_required
+@role_required('council_admin', 'system_admin')
+def get_sms_usage(current_user, council_id):
+    """Return SMS usage statistics for the council (last 30 days)."""
+    if current_user.role == 'council_admin' and current_user.council_id != council_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    from datetime import date, timedelta
+    from app.models import CouncilSmsUsage
+
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+
+    rows = CouncilSmsUsage.query.filter(
+        CouncilSmsUsage.council_id == council_id,
+        CouncilSmsUsage.date >= thirty_days_ago,
+    ).order_by(CouncilSmsUsage.date.desc()).all()
+
+    total = sum(r.messages_sent for r in rows)
+
+    return jsonify({
+        'total_last_30_days': total,
+        'daily': [
+            {'date': r.date.isoformat(), 'messages_sent': r.messages_sent}
+            for r in rows
+        ],
+    }), 200
+
+
+def _default_sms_prefs() -> dict:
+    """Return the default SMS event preferences (all enabled)."""
+    return {
+        'application_received': True,
+        'application_approved': True,
+        'application_rejected': True,
+        'deadline_reminder':    True,
+        'document_required':    True,
+        'payment_processed':    True,
+        'voting_reminder':      True,
+    }

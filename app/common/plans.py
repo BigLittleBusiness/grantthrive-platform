@@ -68,6 +68,9 @@ class PlanLimits:
     # Add-ons available for purchase (Small only)
     community_voting_addon_available: bool
     grant_mapping_addon_available: bool
+    # SMS — included in Medium/Large; purchasable add-on for Small
+    sms_included: bool
+    sms_addon_available: bool
     # Human-readable display name
     display_name: str
     # Monthly price in AUD cents (for reference / billing)
@@ -87,6 +90,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = False,
         community_voting_addon_available = True,
         grant_mapping_addon_available  = True,
+        sms_included           = False,
+        sms_addon_available    = True,
         monthly_price_aud_cents        = 20000,   # $200.00
         annual_price_aud_cents         = 200000,  # $2,000.00 (10 x $200 = 2 months free)
         annual_monthly_price_aud_cents = 16700,   # ~$167/mo
@@ -99,6 +104,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = True,
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
+        sms_included           = True,
+        sms_addon_available    = False,
         monthly_price_aud_cents        = 50000,   # $500.00
         annual_price_aud_cents         = 500000,  # $5,000.00 (10 x $500 = 2 months free)
         annual_monthly_price_aud_cents = 41700,   # ~$417/mo
@@ -111,6 +118,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = True,
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
+        sms_included           = True,
+        sms_addon_available    = False,
         monthly_price_aud_cents        = 110000,  # $1,100.00
         annual_price_aud_cents         = 1100000, # $11,000.00 (10 x $1,100 = 2 months free)
         annual_monthly_price_aud_cents = 91700,   # ~$917/mo
@@ -124,6 +133,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = False,
         community_voting_addon_available = False, # no add-ons during trial
         grant_mapping_addon_available  = False,
+        sms_included           = False,
+        sms_addon_available    = False,  # SMS not available on trial
         monthly_price_aud_cents        = 0,
         annual_price_aud_cents         = 0,
         annual_monthly_price_aud_cents = 0,
@@ -137,6 +148,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = True,
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
+        sms_included           = True,
+        sms_addon_available    = False,
         monthly_price_aud_cents        = 110000,
         annual_price_aud_cents         = 1100000,
         annual_monthly_price_aud_cents = 91700,
@@ -151,6 +164,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = False,
         community_voting_addon_available = True,
         grant_mapping_addon_available  = True,
+        sms_included           = False,
+        sms_addon_available    = True,
         monthly_price_aud_cents        = 20000,
         annual_price_aud_cents         = 200000,
         annual_monthly_price_aud_cents = 16700,
@@ -164,6 +179,8 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
         grant_mapping_included         = True,
         community_voting_addon_available = False,
         grant_mapping_addon_available  = False,
+        sms_included           = True,
+        sms_addon_available    = False,
         monthly_price_aud_cents        = 50000,
         annual_price_aud_cents         = 500000,
         annual_monthly_price_aud_cents = 41700,
@@ -259,6 +276,12 @@ def can_use_feature(council, feature: str) -> bool:
             return True
         return bool(getattr(council, "addon_grant_mapping", False))
 
+    if feature == "sms":
+        if limits.sms_included:
+            return True
+        # Check if the SMS add-on has been enabled by GrantThrive
+        return bool(getattr(council, "addon_sms", False))
+
     # Unknown feature — deny by default
     return False
 
@@ -348,6 +371,8 @@ def plan_entitlements(plan: str) -> dict:
         "grant_mapping_included":        limits.grant_mapping_included,
         "community_voting_addon_available": limits.community_voting_addon_available,
         "grant_mapping_addon_available": limits.grant_mapping_addon_available,
+        "sms_included":                  limits.sms_included,
+        "sms_addon_available":           limits.sms_addon_available,
         # Live pricing fields
         "monthly_price_aud_cents":        pricing["monthly_price_aud_cents"],
         "annual_price_aud_cents":         pricing["annual_price_aud_cents"],

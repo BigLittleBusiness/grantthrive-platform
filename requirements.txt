@@ -74,4 +74,4 @@ boto3==1.34.0
 # Production Server
 # ─────────────────────────────────────────
 
-gunicorn==21.2.0
+gunicorn==21.2.0twilio==9.4.3
