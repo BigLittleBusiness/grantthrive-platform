@@ -121,6 +121,10 @@ def create_app(config_class=Config):
     from app.applications import bp as applications_bp
     app.register_blueprint(applications_bp, url_prefix="/api/applications")
 
+    # GRANTS API
+    from app.grants import bp as grants_bp
+    app.register_blueprint(grants_bp, url_prefix="/api/grants")
+
     # ── Tenant middleware ──────────────────────
     from app.tenancy.middleware import resolve_tenant
 
