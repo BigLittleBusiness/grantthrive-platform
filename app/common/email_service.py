@@ -393,3 +393,84 @@ def send_renewal_reminder(
 <p><strong>The GrantThrive Team</strong></p>"""
     text = f"Hi {first_name},\n\nYour {plan_label} subscription for {council_name} renews on {renewal_str}.\n\nUpdate billing at: {link}\n\nThe GrantThrive Team"
     return send_email(to_email, subject, html, text)
+
+
+def send_monthly_report_pdf(
+    to_email: str, first_name: str, council_name: str,
+    period_label: str, report_path: str
+) -> bool:
+    """
+    Send the automated monthly performance report PDF as an attachment.
+    """
+    subject = f"GrantThrive — Monthly Performance Report: {council_name} — {period_label}"
+    
+    html = f"""
+<h2>Hi {first_name}, your monthly performance report is ready</h2>
+<p>Please find attached the automated Monthly Performance Report for <strong>{council_name}</strong> covering the period <strong>{period_label}</strong>.</p>
+<div class="info-box">
+  <p><strong>The report includes:</strong></p>
+  <p>1. Grant Program Overview</p>
+  <p>2. Applications & Processing Times</p>
+  <p>3. Budget Allocation</p>
+  <p>4. Community Engagement</p>
+  <p>5. Cost Savings & Efficiency</p>
+  <p>6. Review & Assessment Activity</p>
+</div>
+<p>If you have any questions about the data in this report, please contact your GrantThrive administrator.</p>
+<p><strong>The GrantThrive Team</strong></p>"""
+
+    text = (
+        f"Hi {first_name},\n\n"
+        f"Please find attached the automated Monthly Performance Report for {council_name} "
+        f"covering the period {period_label}.\n\n"
+        f"If you have any questions, please contact your GrantThrive administrator.\n\n"
+        f"The GrantThrive Team"
+    )
+
+    full_html = _email_wrapper(html, preheader=subject)
+
+    if not _ses_enabled():
+        logger.info(
+            "DEV MODE — Email not sent (Attachment: %s):\n  To: %s\n  Subject: %s",
+            os.path.basename(report_path), to_email, subject,
+        )
+        return True
+
+    try:
+        import boto3
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.application import MIMEApplication
+
+        msg = MIMEMultipart()
+        msg['Subject'] = subject
+        msg['From'] = f'{FROM_NAME} <{FROM_EMAIL}>'
+        msg['To'] = to_email
+
+        # Add text and HTML bodies
+        body = MIMEMultipart('alternative')
+        body.attach(MIMEText(text, 'plain', 'utf-8'))
+        body.attach(MIMEText(full_html, 'html', 'utf-8'))
+        msg.attach(body)
+
+        # Add attachment
+        with open(report_path, 'rb') as f:
+            part = MIMEApplication(f.read(), Name=os.path.basename(report_path))
+            part['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
+            msg.attach(part)
+
+        client = boto3.client(
+            'ses',
+            region_name=os.environ.get('AWS_SES_REGION', 'ap-southeast-2'),
+        )
+        client.send_raw_email(
+            Source=f'{FROM_NAME} <{FROM_EMAIL}>',
+            Destinations=[to_email],
+            RawMessage={'Data': msg.as_string()}
+        )
+        logger.info("SES raw email with attachment sent to %s — %s", to_email, subject)
+        return True
+
+    except Exception as exc:
+        logger.error("SES raw send failed to %s: %s", to_email, exc)
+        return False

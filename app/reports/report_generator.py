@@ -9,7 +9,7 @@ community engagement, and cost savings for the previous calendar month.
 import os
 import io
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from reportlab.platypus import (
@@ -25,7 +25,7 @@ from reportlab.platypus import Image as RLImage
 from sqlalchemy import func, case, and_, extract
 
 from app import db
-from app.models import Grant, Application, User, Review, CommunityVote, VotingSession
+from app.models import Council, Grant, Application, User, Review, CommunityVote, VotingSession
 
 logger = logging.getLogger(__name__)
 
@@ -221,14 +221,14 @@ def _section_divider(styles):
 
 # ─── Main public function ─────────────────────────────────────────────────────
 
-def generate_council_report(admin_user, year, month, output_dir="/tmp"):
+def generate_council_report(council, year, month, output_dir="/tmp"):
     """
     Generate a comprehensive monthly performance PDF report for a single council.
 
     Parameters
     ----------
-    admin_user : User
-        The admin User record representing the council.
+    council : Council
+        The Council record.
     year : int
         The reporting year (e.g. 2026).
     month : int
@@ -247,18 +247,18 @@ def generate_council_report(admin_user, year, month, output_dir="/tmp"):
     period_end   = next_month - timedelta(seconds=1)
     period_label = period_start.strftime("%B %Y")
 
-    council_name = _derive_council_name(admin_user)
+    council_name = council.name
 
     logger.info(
-        "Generating report for council '%s' (user_id=%d) — period: %s",
-        council_name, admin_user.id, period_label,
+        "Generating report for council '%s' (id=%d) — period: %s",
+        council_name, council.id, period_label,
     )
 
     # ── Fetch all data ────────────────────────────────────────────────────────
-    data = _collect_metrics(admin_user, period_start, period_end)
+    data = _collect_metrics(council, period_start, period_end)
 
     # ── Build PDF ─────────────────────────────────────────────────────────────
-    safe_name = admin_user.username.replace(" ", "_")
+    safe_name = council.slug.replace("-", "_")
     filename  = f"monthly_report_{safe_name}_{year}_{month:02d}.pdf"
     filepath  = os.path.join(output_dir, filename)
 
@@ -308,23 +308,15 @@ def generate_council_report(admin_user, year, month, output_dir="/tmp"):
 
 # ─── Data collection ──────────────────────────────────────────────────────────
 
-def _derive_council_name(admin_user):
-    """Derive a display council name from the admin user record."""
-    # Use organisation_name if the field exists on the model, otherwise fall back
-    if hasattr(admin_user, "organisation_name") and admin_user.organisation_name:
-        return admin_user.organisation_name
-    return f"{admin_user.first_name} {admin_user.last_name} Council"
-
-
-def _collect_metrics(admin_user, period_start, period_end):
+def _collect_metrics(council, period_start, period_end):
     """
     Query the database and return a dict of all metrics needed for the report.
-    All queries are scoped to grants owned by admin_user.
+    All queries are scoped to grants owned by the council.
     """
-    uid = admin_user.id
+    cid = council.id
 
     # ── All grants for this council ───────────────────────────────────────────
-    all_grants = Grant.query.filter_by(created_by=uid).all()
+    all_grants = Grant.query.filter_by(council_id=cid).all()
     grant_ids  = [g.id for g in all_grants]
 
     # ── Grant status breakdown ────────────────────────────────────────────────
@@ -479,8 +471,7 @@ def _collect_metrics(admin_user, period_start, period_end):
     # ── Compile and return ────────────────────────────────────────────────────
     return {
         # Meta
-        "council_name":      _derive_council_name(admin_user),
-        "admin_email":       admin_user.email,
+        "council_name":      council.name,
         "generated_at":      datetime.now(timezone.utc),
         # Grants
         "all_grants":        all_grants,

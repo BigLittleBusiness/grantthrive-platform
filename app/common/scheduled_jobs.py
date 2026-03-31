@@ -200,9 +200,40 @@ def _job_monthly_digest(app):
             logger.error('monthly_digest job failed: %s', exc)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
+# Job 5: Monthly performance reports (1st of month 09:00 UTC+10)
+# ───────────────────────────────────────────────────────────────────────────────
+
+def _job_monthly_performance_reports(app):
+    """Generate and email comprehensive monthly performance reports to all council admins."""
+    with app.app_context():
+        try:
+            import os
+            from app.reports.monthly_reports import run_monthly_reports
+
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            output_dir = os.path.join(project_root, 'reports_output')
+            log_dir    = os.path.join(project_root, 'logs')
+
+            results = run_monthly_reports(
+                output_dir=output_dir,
+                log_dir=log_dir,
+                dry_run=False,
+            )
+
+            success = sum(1 for r in results if r['status'] == 'success')
+            failed  = sum(1 for r in results if r['status'] == 'failed')
+            logger.info(
+                'monthly_performance_reports job: %d councils processed, %d success, %d failed',
+                len(results), success, failed,
+            )
+        except Exception as exc:
+            logger.error('monthly_performance_reports job failed: %s', exc)
+
+
+# ───────────────────────────────────────────────────────────────────────────────
 # Job 4: Subscription renewal reminder (daily 09:00 UTC+10)
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 def _job_subscription_renewal_reminder(app):
     """Warn council admins 14 days before their subscription renews."""
@@ -276,6 +307,15 @@ def init_scheduler(app):
         trigger=CronTrigger(day=1, hour=8, minute=0),
         args=[app],
         id='monthly_digest',
+        replace_existing=True,
+    )
+
+    # Job 5: monthly performance reports — 1st of each month at 09:00 AEST
+    _scheduler.add_job(
+        func=_job_monthly_performance_reports,
+        trigger=CronTrigger(day=1, hour=9, minute=0),
+        args=[app],
+        id='monthly_performance_reports',
         replace_existing=True,
     )
 

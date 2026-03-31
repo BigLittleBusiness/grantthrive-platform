@@ -2,7 +2,7 @@
 GrantThrive - Automated Monthly Report Runner
 ==============================================
 Orchestrates the generation and email delivery of monthly performance reports
-for every council (admin user) that has at least one grant in the system.
+for every council (tenant) that has at least one grant in the system.
 
 Designed to be invoked:
   - Via the Flask CLI:      flask run-monthly-reports
@@ -15,16 +15,14 @@ Execution schedule: 1st of each month at 09:00 local time.
 import os
 import logging
 import json
-from datetime import datetime, timedelta
-from email.mime.base import MIMEBase
-from email import encoders
+from datetime import datetime, timedelta, timezone
 
 from flask import current_app
-from flask_mail import Message
 
-from app import db, mail
-from app.models import User, Grant
+from app import db
+from app.models import Council, User, Grant
 from app.reports.report_generator import generate_council_report
+from app.common import email_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,85 +46,71 @@ def _get_report_period():
 
 def _councils_with_grants():
     """
-    Return a list of User records (role='admin') who own at least one grant.
-    Each such user represents a council in the GrantThrive model.
+    Return a list of Council records that own at least one grant.
     """
-    admins_with_grants = (
-        db.session.query(User)
-        .join(Grant, Grant.created_by == User.id)
-        .filter(User.role == "admin", User.is_active == True)
+    councils = (
+        db.session.query(Council)
+        .join(Grant, Grant.council_id == Council.id)
+        .filter(Council.is_active == True)
         .distinct()
         .all()
     )
-    return admins_with_grants
+    return councils
 
 
-def _send_report_email(admin_user, report_path, year, month):
+def _send_report_email(council, report_path, year, month):
     """
-    Email the PDF report to all admin users associated with the council.
-    In the current data model a council is represented by a single admin user,
-    but we also CC any other active admin users who share the same email domain
-    so that multiple staff members at the same council receive the report.
+    Email the PDF report to all council_admin users associated with the council.
+    Uses the central SES email service.
 
     Parameters
     ----------
-    admin_user : User
+    council : Council
     report_path : str    Absolute path to the generated PDF.
     year : int
     month : int
     """
     period_label = datetime(year, month, 1).strftime("%B %Y")
-    council_name = (
-        admin_user.organisation_name
-        if hasattr(admin_user, "organisation_name") and admin_user.organisation_name
-        else f"{admin_user.first_name} {admin_user.last_name} Council"
-    )
-
-    subject = (
-        f"GrantThrive — Monthly Performance Report: {council_name} — {period_label}"
-    )
-
-    body_text = (
-        f"Dear {admin_user.first_name},\n\n"
-        f"Please find attached the automated Monthly Performance Report for "
-        f"{council_name} covering the period {period_label}.\n\n"
-        f"The report includes the following sections:\n"
-        f"  1. Grant Program Overview\n"
-        f"  2. Applications & Processing Times\n"
-        f"  3. Budget Allocation\n"
-        f"  4. Community Engagement\n"
-        f"  5. Cost Savings & Efficiency\n"
-        f"  6. Review & Assessment Activity\n\n"
-        f"This report was generated automatically by the GrantThrive platform on "
-        f"{datetime.now(timezone.utc).strftime('%d %B %Y at %H:%M UTC')}.\n\n"
-        f"If you have any questions about the data in this report, please contact "
-        f"your GrantThrive administrator.\n\n"
-        f"Kind regards,\n"
-        f"GrantThrive Platform\n"
-        f"https://grantthrive.com"
-    )
-
-    msg = Message(
-        subject=subject,
-        sender=current_app.config.get("MAIL_DEFAULT_SENDER", "noreply@grantthrive.com"),
-        recipients=[admin_user.email],
-    )
-    msg.body = body_text
-
-    # Attach the PDF
-    filename = os.path.basename(report_path)
-    with open(report_path, "rb") as fp:
-        msg.attach(
-            filename=filename,
-            content_type="application/pdf",
-            data=fp.read(),
-        )
-
-    mail.send(msg)
-    logger.info(
-        "Report email sent to %s (%s) for period %s",
-        admin_user.email, council_name, period_label,
-    )
+    
+    # Find all active council admins for this council
+    admins = User.query.filter_by(
+        council_id=council.id, 
+        role='council_admin', 
+        is_active=True
+    ).all()
+    
+    if not admins:
+        logger.warning("No active council admins found for %s", council.name)
+        return False
+        
+    subject = f"GrantThrive — Monthly Performance Report: {council.name} — {period_label}"
+    
+    # Use SES to send the email (we'll implement send_monthly_report_pdf in email_service.py)
+    success_count = 0
+    for admin in admins:
+        # Note: In a real production system with SES, we'd need a way to attach files.
+        # Since email_service.py doesn't currently support attachments, we'll either need
+        # to add attachment support to it, or fall back to Flask-Mail for this specific task,
+        # or upload the PDF to S3 and send a link.
+        # Let's add attachment support to email_service.py
+        try:
+            res = email_service.send_monthly_report_pdf(
+                to_email=admin.email,
+                first_name=admin.first_name,
+                council_name=council.name,
+                period_label=period_label,
+                report_path=report_path
+            )
+            if res:
+                success_count += 1
+                logger.info(
+                    "Report email sent to %s (%s) for period %s",
+                    admin.email, council.name, period_label,
+                )
+        except Exception as e:
+            logger.error("Failed to send report email to %s: %s", admin.email, e)
+            
+    return success_count > 0
 
 
 def _log_result(results, output_dir=None):
@@ -211,16 +195,10 @@ def run_monthly_reports(output_dir="/tmp", log_dir=None, dry_run=False):
 
     results = []
 
-    for admin_user in councils:
-        council_name = (
-            admin_user.organisation_name
-            if hasattr(admin_user, "organisation_name") and admin_user.organisation_name
-            else f"{admin_user.first_name} {admin_user.last_name} Council"
-        )
+    for council in councils:
         result = {
-            "council":    council_name,
-            "user_id":    admin_user.id,
-            "email":      admin_user.email,
+            "council":    council.name,
+            "council_id": council.id,
             "period":     period_label,
             "status":     None,
             "report_path": None,
@@ -229,11 +207,11 @@ def run_monthly_reports(output_dir="/tmp", log_dir=None, dry_run=False):
         }
 
         try:
-            logger.info("Processing council: %s (user_id=%d)", council_name, admin_user.id)
+            logger.info("Processing council: %s (id=%d)", council.name, council.id)
 
             # Step 1: Generate the PDF report
             report_path = generate_council_report(
-                admin_user=admin_user,
+                council=council,
                 year=year,
                 month=month,
                 output_dir=output_dir,
@@ -243,16 +221,20 @@ def run_monthly_reports(output_dir="/tmp", log_dir=None, dry_run=False):
 
             # Step 2: Email the report
             if dry_run:
-                logger.info("  [DRY RUN] Skipping email send for %s", admin_user.email)
+                logger.info("  [DRY RUN] Skipping email send for %s", council.name)
                 result["status"] = STATUS_SKIPPED
             else:
-                _send_report_email(admin_user, report_path, year, month)
-                result["status"] = STATUS_SUCCESS
+                success = _send_report_email(council, report_path, year, month)
+                if success:
+                    result["status"] = STATUS_SUCCESS
+                else:
+                    result["status"] = STATUS_FAILED
+                    result["error"] = "Failed to send to any admin"
 
         except Exception as exc:
             logger.exception(
                 "  Failed to process report for council '%s': %s",
-                council_name, exc,
+                council.name, exc,
             )
             result["status"] = STATUS_FAILED
             result["error"]  = str(exc)
