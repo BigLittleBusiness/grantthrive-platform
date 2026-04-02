@@ -94,17 +94,21 @@ def _build_styles():
         "kpi_value": ParagraphStyle(
             "kpi_value",
             parent=base["Normal"],
-            fontSize=22,
+            fontSize=18,
+            leading=20,
             textColor=GT_DARK_GREEN,
             alignment=TA_CENTER,
             fontName="Helvetica-Bold",
+            spaceAfter=2,
         ),
         "kpi_label": ParagraphStyle(
             "kpi_label",
             parent=base["Normal"],
-            fontSize=8,
+            fontSize=7.5,
+            leading=9,
             textColor=colors.HexColor("#6C757D"),
             alignment=TA_CENTER,
+            spaceBefore=2,
         ),
         "table_header": ParagraphStyle(
             "table_header",
@@ -187,26 +191,36 @@ def _table_style(header_rows=1):
 
 def _kpi_table(kpis, styles):
     """
-    Build a single-row KPI banner.
+    Build a two-row KPI banner: top row = values, bottom row = labels.
+    This prevents the large figure text from overlapping the label text.
     kpis: list of (value_str, label_str) tuples
     """
-    cells = []
-    for value, label in kpis:
-        cell = [
-            Paragraph(value, styles["kpi_value"]),
-            Paragraph(label, styles["kpi_label"]),
-        ]
-        cells.append(cell)
+    value_cells = [Paragraph(v, styles["kpi_value"]) for v, _ in kpis]
+    label_cells  = [Paragraph(l, styles["kpi_label"]) for _, l in kpis]
 
     col_width = (A4[0] - 1.5 * inch) / len(kpis)
-    t = Table([cells], colWidths=[col_width] * len(kpis))
+    t = Table(
+        [value_cells, label_cells],
+        colWidths=[col_width] * len(kpis),
+    )
     t.setStyle(TableStyle([
+        # Background and borders
         ("BACKGROUND",    (0, 0), (-1, -1), GT_LIGHT_GREEN),
         ("BOX",           (0, 0), (-1, -1), 0.5, GT_MID_GREEN),
         ("INNERGRID",     (0, 0), (-1, -1), 0.5, GT_MID_GREEN),
-        ("TOPPADDING",    (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW",     (0, 0), (-1, 0),  0,   GT_LIGHT_GREEN),  # no divider between rows
+        # Alignment
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, 0),  "BOTTOM"),  # value row — pin to bottom
+        ("VALIGN",        (0, 1), (-1, 1),  "TOP"),     # label row — pin to top
+        # Padding — value row
+        ("TOPPADDING",    (0, 0), (-1, 0),  10),
+        ("BOTTOMPADDING", (0, 0), (-1, 0),  2),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        # Padding — label row
+        ("TOPPADDING",    (0, 1), (-1, 1),  2),
+        ("BOTTOMPADDING", (0, 1), (-1, 1),  10),
     ]))
     return t
 
