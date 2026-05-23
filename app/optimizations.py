@@ -1,6 +1,5 @@
-"""
-Performance optimization utilities for GrantThrive platform
-"""
+"""Performance optimization utilities for GrantThrive platform"""
+import os
 from functools import wraps
 from flask import request, jsonify, current_app
 from flask_caching import Cache
@@ -14,12 +13,23 @@ cache = Cache()
 
 def init_optimizations(app):
     """Initialize performance optimizations"""
-    
-    # Configure caching
-    cache.init_app(app, config={
-        'CACHE_TYPE': 'simple',
-        'CACHE_DEFAULT_TIMEOUT': 300
-    })
+
+    # Use Redis as the cache backend when REDIS_URL is set (production/staging).
+    # Falls back to SimpleCache for local development when Redis is not available.
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        cache_config = {
+            'CACHE_TYPE': 'RedisCache',
+            'CACHE_REDIS_URL': redis_url,
+            'CACHE_DEFAULT_TIMEOUT': 300,
+        }
+    else:
+        cache_config = {
+            'CACHE_TYPE': 'SimpleCache',
+            'CACHE_DEFAULT_TIMEOUT': 300,
+        }
+
+    cache.init_app(app, config=cache_config)
     
     # Add database query logging in debug mode
     if app.debug:
@@ -55,9 +65,20 @@ def cached_route(timeout=300):
     return decorator
 
 def invalidate_cache_pattern(pattern):
-    """Invalidate cache entries matching pattern"""
-    # Simple implementation - in production use Redis with pattern matching
-    cache.clear()
+    """Invalidate cache entries matching a key pattern.
+
+    When the cache backend is Redis, uses SCAN-based pattern matching to
+    delete only the matching keys.  Falls back to a full cache clear for
+    non-Redis backends (e.g., SimpleCache in local development).
+    """
+    try:
+        redis_client = cache.cache._write_client  # type: ignore[attr-defined]
+        keys = redis_client.keys(f"flask_cache_{pattern}*")
+        if keys:
+            redis_client.delete(*keys)
+    except Exception:
+        # Non-Redis backend or client not available — clear everything
+        cache.clear()
 
 class QueryOptimizer:
     """Database query optimization utilities"""

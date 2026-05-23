@@ -2,6 +2,7 @@
 GrantThrive — Application Factory
 """
 
+import os
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -17,10 +18,14 @@ migrate = Migrate()
 login_manager = LoginManager()
 mail = Mail()
 
+# Use Redis as the rate-limiter storage backend in production.
+# Falls back to in-memory storage when REDIS_URL is not set (local dev / CI).
+_REDIS_URL = os.environ.get("REDIS_URL")
+
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[],
-    storage_uri="memory://",
+    storage_uri=_REDIS_URL if _REDIS_URL else "memory://",
 )
 
 
