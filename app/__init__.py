@@ -40,6 +40,10 @@ def create_app(config_class=Config):
     mail.init_app(app)
     limiter.init_app(app)
 
+    # ── Performance / Caching ──────────────────
+    from app.optimizations import init_optimizations
+    init_optimizations(app)
+
     # ── CORS ───────────────────────────────────
     allowed_origins = [
         "http://localhost:5173",
