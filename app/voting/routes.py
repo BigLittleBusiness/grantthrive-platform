@@ -669,16 +669,25 @@ def api_get_session(session_id):
 @voting.route('/api/sessions/<int:session_id>/vote', methods=['POST'])
 def api_submit_vote(session_id):
     """Submit a vote for an application in a session via the React frontend.
-    Delegates to the existing submit_vote security pipeline.
+
+    Bug fix: the previous implementation forwarded to submit_vote() via
+    test_request_context(), which created a new request context and silently
+    discarded the real client IP (REMOTE_ADDR / HTTP_X_FORWARDED_FOR).
+    This broke IP-based duplicate-vote detection and security analytics for
+    all votes submitted through the React SPA.
+
+    Fix: inject session_id into the parsed JSON body and call submit_vote()
+    directly within the live request context so that request.environ retains
+    the real client IP and user agent throughout the security pipeline.
     """
     data = request.get_json() or {}
     data['voting_session_id'] = session_id
-    # Re-use the existing submit_vote logic by forwarding to it
-    from flask import current_app
-    with current_app.test_request_context(
-        '/voting/api/vote',
-        method='POST',
-        json=data,
-        headers=dict(request.headers),
-    ):
+    # Temporarily override request.get_json so submit_vote() reads our
+    # augmented data dict (which now includes voting_session_id) rather
+    # than re-parsing the raw body.
+    original_get_json = request.get_json
+    request.get_json = lambda **_: data  # type: ignore[method-assign]
+    try:
         return submit_vote()
+    finally:
+        request.get_json = original_get_json  # type: ignore[method-assign]
