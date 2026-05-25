@@ -134,6 +134,10 @@ def create_app(config_class=Config):
     from app.grants import bp as grants_bp
     app.register_blueprint(grants_bp, url_prefix="/api/grants")
 
+    # ABN VALIDATION (Australian Business Register)
+    from app.api.abn import abn_bp
+    app.register_blueprint(abn_bp, url_prefix="/api")
+
     # ── Tenant middleware ──────────────────────
     from app.tenancy.middleware import resolve_tenant
 

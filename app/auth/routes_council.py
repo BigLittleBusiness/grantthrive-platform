@@ -60,7 +60,8 @@ def _register_council_user(data: dict):
     last_name = (data.get("last_name") or "").strip()
     phone = (data.get("phone") or "").strip() or None
     organisation = (data.get("organisation") or data.get("organization_name") or "").strip() or None
-    abn = (data.get("abn") or "").strip() or None
+    abn_raw = (data.get("abn") or "").strip() or None
+    abn = abn_raw
     email_opt_in = bool(data.get("email_opt_in", True))
     position = (data.get("position") or "").strip() or None
     department = (data.get("department") or "").strip() or None
@@ -70,6 +71,19 @@ def _register_council_user(data: dict):
         return jsonify({"error": "Email, password, first name, and last name are required."}), 400
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters."}), 400
+
+    # ── ABN validation ────────────────────────────────────────────────────────
+    if abn_raw:
+        from app.common.abr_service import lookup_abn
+        abn_result = lookup_abn(abn_raw)
+        if not abn_result["valid_format"]:
+            return jsonify({"error": "The ABN entered is not valid. Please check and try again."}), 400
+        if abn_result["live_validated"] and abn_result["active"] is False:
+            return jsonify({
+                "error": "The ABN entered is registered with the ABR but is not currently active. "
+                         "Please check the ABN and try again."
+            }), 400
+        abn = abn_result["abn"]  # store normalised 11-digit form
 
     # ── Government domain check ───────────────────────────────────────────────
     if not _is_govt_email(email):
