@@ -1201,14 +1201,14 @@ SMS_TIERS = {
         'included_messages': 10000,
         'price_aud_cents':   19900,  # $199/mo
         'overage_cents':     12,
-        'min_plan':          'medium',
+        'min_plan':          'small',  # available to all paid plans
     },
     'enterprise': {
         'name':              'SMS Enterprise',
         'included_messages': 50000,
         'price_aud_cents':   59900,  # $599/mo
         'overage_cents':     10,
-        'min_plan':          'large',
+        'min_plan':          'small',  # available to all paid plans
     },
 }
 
