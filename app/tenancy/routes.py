@@ -841,6 +841,31 @@ def get_billing_info(current_user, council_id):
     # 'trial' is not a paid plan so pricing fields will be None/absent.
     pricing = get_live_plan_pricing(plan_key) if plan_key != 'trial' else {}
 
+    # ── SMS add-on cost ────────────────────────────────────────────────────────
+    # Look up the council's active SMS tier (if any) and include its monthly
+    # price so the frontend can display a correct combined total.
+    sms_monthly_cents = None
+    sms_annual_cents  = None
+    sms_tier_name     = None
+    if council.addon_sms and council.sms_tier and council.sms_tier in SMS_TIERS:
+        sms_tier_data     = SMS_TIERS[council.sms_tier]
+        sms_monthly_cents = sms_tier_data['price_aud_cents']
+        sms_annual_cents  = sms_tier_data['price_aud_cents'] * 12
+        sms_tier_name     = sms_tier_data['name']
+
+    # ── Combined totals ────────────────────────────────────────────────────────
+    base_monthly = pricing.get('monthly_price_aud_cents') or 0
+    base_annual  = pricing.get('annual_price_aud_cents')  or 0
+    addon_voting   = pricing.get('addon_community_voting_cents') or 0
+    addon_mapping  = pricing.get('addon_grant_mapping_cents')    or 0
+    # Only count voting/mapping add-ons if the council has them enabled
+    voting_cost  = addon_voting  if council.addon_community_voting else 0
+    mapping_cost = addon_mapping if council.addon_grant_mapping    else 0
+    sms_cost     = sms_monthly_cents or 0
+
+    total_monthly_cents = base_monthly + voting_cost + mapping_cost + sms_cost
+    total_annual_cents  = base_annual  + (voting_cost * 12) + (mapping_cost * 12) + (sms_annual_cents or 0)
+
     return jsonify({
         'council_id':    council.id,
         'council_name':  council.name,
@@ -850,12 +875,18 @@ def get_billing_info(current_user, council_id):
             council.trial_ends_at.isoformat() if council.trial_ends_at else None
         ),
         # Pricing values in AUD cents — frontend divides by 100 for display.
-        # Key names match what get_live_plan_pricing() actually returns.
         'billing': {
             'monthly_price_aud_cents':  pricing.get('monthly_price_aud_cents'),
             'annual_price_aud_cents':   pricing.get('annual_price_aud_cents'),
             'addon_voting_cents':       pricing.get('addon_community_voting_cents'),
             'addon_mapping_cents':      pricing.get('addon_grant_mapping_cents'),
+            # SMS add-on (None when not active)
+            'addon_sms_monthly_cents':  sms_monthly_cents,
+            'addon_sms_annual_cents':   sms_annual_cents,
+            'addon_sms_tier_name':      sms_tier_name,
+            # Combined totals across all active charges
+            'total_monthly_cents':      total_monthly_cents if plan_key != 'trial' else None,
+            'total_annual_cents':       total_annual_cents  if plan_key != 'trial' else None,
         },
         # Council contact details (editable via PATCH /api/councils/<id>)
         'council': {
