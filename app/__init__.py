@@ -92,6 +92,7 @@ def create_app(config_class=Config):
 
     # TENANCY
     from app.tenancy.routes import councils_bp
+    from app.tenancy import logo  # noqa: F401 — registers POST /api/councils/<id>/logo
     app.register_blueprint(councils_bp, url_prefix="/api")
 
     # SYSTEM ADMIN

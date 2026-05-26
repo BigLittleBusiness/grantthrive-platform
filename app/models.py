@@ -414,8 +414,11 @@ class ApplicationDocument(db.Model):
 
     id                  = db.Column(db.Integer, primary_key=True)
     application_id      = db.Column(db.Integer, db.ForeignKey('applications.id'), nullable=False)
-    filename            = db.Column(db.String(255), nullable=False)
-    original_filename   = db.Column(db.String(255), nullable=False)
+    filename            = db.Column(db.String(255), nullable=False)      # sanitised storage name
+    original_filename   = db.Column(db.String(255), nullable=False)      # original name from user
+    # S3 object key — e.g. "documents/council-1/application-42/abc123_report.pdf"
+    # Download URLs are generated on-demand as pre-signed S3 URLs.
+    s3_key              = db.Column(db.String(1024), nullable=True)
     file_size           = db.Column(db.Integer)
     mime_type           = db.Column(db.String(100))
     uploaded_at         = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
