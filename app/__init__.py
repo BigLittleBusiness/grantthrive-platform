@@ -45,10 +45,16 @@ def create_app(config_class=Config):
     init_optimizations(app)
 
     # ── CORS ───────────────────────────────────
-    allowed_origins = [
+    allowed_origins = {
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-    ]
+    }
+
+    frontend_base_url = os.environ.get("FRONTEND_BASE_URL")
+    if frontend_base_url:
+        allowed_origins.add(frontend_base_url.rstrip("/"))
+
+    allowed_origins = sorted(allowed_origins)
 
     CORS(
         app,
@@ -152,7 +158,6 @@ def create_app(config_class=Config):
     register_template_filters(app)
 
     # ── Scheduler ──────────────────────────────
-    import os
     if not app.testing and os.environ.get("WERKZEUG_RUN_MAIN") != "false":
         from app.common.scheduled_jobs import init_scheduler
         init_scheduler(app)

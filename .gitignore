@@ -52,3 +52,24 @@ Thumbs.db
 
 # Uploads
 app/static/uploads/
+
+# Test/build caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# Terraform local artifacts
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/crash.log
+terraform/crash.*.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
+
+# Runtime output
+reports_output/

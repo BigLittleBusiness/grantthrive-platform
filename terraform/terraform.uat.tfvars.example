@@ -1,0 +1,31 @@
+aws_region             = "ap-southeast-2"
+project_name           = "granthrive"
+environment            = "prod"
+domain_name            = "grantthrive.com"
+api_subdomain          = "api"
+uat_api_subdomain      = "api.uat"
+route53_zone_id        = "Z123456EXAMPLE"
+# ACM Certificate ARN is optional - leave empty to deploy without HTTPS initially
+# To add later: aws acm request-certificate --domain-name *.grantthrive.com --region ap-southeast-2
+alb_certificate_arn    = ""
+
+# Keep both image values present in each env file to avoid accidental rollback.
+backend_image          = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/granthrive-prod/backend:prod-latest"
+uat_backend_image      = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/granthrive-prod/backend:uat-latest"
+
+desired_count          = 1
+uat_desired_count      = 1
+
+frontend_base_url      = "https://app.uat.grantthrive.com"
+marketing_base_url     = "https://www.grantthrive.com"
+aws_s3_bucket          = "grantthrive-documents-uat"
+aws_s3_use_local_fallback = false
+aws_ses_enabled        = true
+aws_ses_region         = "ap-southeast-2"
+aws_ses_from_email     = "hello@grantthrive.com"
+mail_server            = "email-smtp.ap-southeast-2.amazonaws.com"
+mail_port              = 587
+mail_use_tls           = true
+mail_username          = ""
+mail_password          = ""
+mail_default_sender    = "GrantThrive <noreply@grantthrive.com>"

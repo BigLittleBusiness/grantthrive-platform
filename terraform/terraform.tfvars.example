@@ -1,0 +1,24 @@
+aws_region            = "ap-southeast-2"
+project_name          = "granthrive"
+environment           = "prod"
+domain_name           = "grantthrive.com"
+api_subdomain         = "api"
+uat_api_subdomain     = "api.uat"
+route53_zone_id       = "Z123456EXAMPLE"
+# ACM Certificate ARN is optional (HTTPS skipped if empty)
+alb_certificate_arn   = ""
+backend_image         = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/granthrive-prod/backend:latest"
+uat_backend_image     = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/granthrive-prod/backend:uat"
+frontend_base_url     = "https://app.grantthrive.com"
+marketing_base_url    = "https://www.grantthrive.com"
+aws_s3_bucket         = "grantthrive-documents-prod"
+aws_s3_use_local_fallback = false
+aws_ses_enabled       = true
+aws_ses_region        = "ap-southeast-2"
+aws_ses_from_email    = "hello@grantthrive.com"
+mail_server           = "smtp.sendgrid.net"
+mail_port             = 587
+mail_use_tls          = true
+mail_username         = ""
+mail_password         = ""
+mail_default_sender   = "GrantThrive <noreply@grantthrive.com>"

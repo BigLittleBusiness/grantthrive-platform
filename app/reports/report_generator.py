@@ -26,6 +26,7 @@ from sqlalchemy import func, case, and_, extract
 
 from app import db
 from app.models import Council, Grant, Application, User, Review, CommunityVote, VotingSession
+from app.common.s3_service import s3_service
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +238,11 @@ def _section_divider(styles):
 
 def generate_council_report(council, year, month, output_dir="/tmp"):
     """
-    Generate a comprehensive monthly performance PDF report for a single council.
+    Generate a comprehensive monthly performance PDF report for a council.
+
+    The PDF is generated in-memory and stored in S3. If S3 is not configured
+    and output_dir is provided, falls back to writing the local filesystem
+    (development only).
 
     Parameters
     ----------
@@ -248,12 +253,16 @@ def generate_council_report(council, year, month, output_dir="/tmp"):
     month : int
         The reporting month (1–12).
     output_dir : str
-        Directory to write the PDF file.
+        Directory for fallback if S3 is not configured (development only).
 
     Returns
     -------
-    str
-        Absolute path to the generated PDF file.
+    dict
+        A dictionary with keys:
+        - 'filename': original filename (e.g. 'monthly_report_council_2025_01.pdf')
+        - 's3_key': S3 key if uploaded to S3, None if written locally
+        - 'local_path': local filesystem path if written locally, None otherwise
+        - 'content': BytesIO buffer of the PDF content (for email attachments)
     """
     # ── Reporting window ──────────────────────────────────────────────────────
     period_start = datetime(year, month, 1)
@@ -271,13 +280,15 @@ def generate_council_report(council, year, month, output_dir="/tmp"):
     # ── Fetch all data ────────────────────────────────────────────────────────
     data = _collect_metrics(council, period_start, period_end)
 
-    # ── Build PDF ─────────────────────────────────────────────────────────────
+    # ── Build PDF in memory ───────────────────────────────────────────────────
     safe_name = council.slug.replace("-", "_")
     filename  = f"monthly_report_{safe_name}_{year}_{month:02d}.pdf"
-    filepath  = os.path.join(output_dir, filename)
+    
+    # Use BytesIO to write PDF in memory
+    pdf_buffer = io.BytesIO()
 
     doc = SimpleDocTemplate(
-        filepath,
+        pdf_buffer,
         pagesize=A4,
         leftMargin=0.75 * inch,
         rightMargin=0.75 * inch,
@@ -316,7 +327,77 @@ def generate_council_report(council, year, month, output_dir="/tmp"):
     story += _build_footer(period_label, styles)
 
     doc.build(story)
-    logger.info("Report written to %s", filepath)
+    pdf_buffer.seek(0)
+
+    result = {
+        "filename": filename,
+        "s3_key": None,
+        "local_path": None,
+        "content": pdf_buffer,
+    }
+
+    # ── Upload to S3 if configured ─────────────────────────────────────────────
+    if s3_service.is_configured():
+        try:
+            s3_key = s3_service.make_report_key(council.id, filename)
+            s3_service.upload_fileobj(
+                pdf_buffer,
+                s3_key,
+                content_type="application/pdf",
+                extra_metadata={
+                    "council_id": str(council.id),
+                    "year": str(year),
+                    "month": str(month),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            result["s3_key"] = s3_key
+            logger.info("Report uploaded to S3: %s", s3_key)
+        except RuntimeError as exc:
+            logger.error(
+                "Failed to upload report to S3 for council %d: %s",
+                council.id, exc
+            )
+            # Fall back to local filesystem if S3 fails and output_dir is provided
+            if output_dir:
+                result["local_path"] = _save_report_locally(pdf_buffer, filename, output_dir)
+    else:
+        # S3 not configured — write to local filesystem (development only)
+        if output_dir:
+            result["local_path"] = _save_report_locally(pdf_buffer, filename, output_dir)
+        else:
+            logger.warning(
+                "S3 is not configured and no output_dir provided. "
+                "Report will be available in memory only (email attachments)."
+            )
+
+    return result
+
+
+def _save_report_locally(pdf_buffer, filename, output_dir):
+    """
+    Save a PDF report to local filesystem (development/fallback only).
+
+    Parameters
+    ----------
+    pdf_buffer : BytesIO
+        Buffer containing the PDF content.
+    filename : str
+        Original filename.
+    output_dir : str
+        Directory to write the file.
+
+    Returns
+    -------
+    str
+        Absolute path to the written file.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    pdf_buffer.seek(0)
+    filepath = os.path.join(output_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(pdf_buffer.read())
+    logger.info("Report written to local filesystem: %s", filepath)
     return filepath
 
 

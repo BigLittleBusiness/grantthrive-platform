@@ -87,11 +87,12 @@ class Config:
     )
 
     # ─────────────────────────────────────────
-    # File Uploads
+    # File Uploads & S3 Storage
     # ─────────────────────────────────────────
 
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
 
+    # Local upload folder (legacy/fallback for development)
     UPLOAD_FOLDER = os.environ.get(
         "UPLOAD_FOLDER",
         "/tmp/grantthrive_uploads"
@@ -110,10 +111,16 @@ class Config:
         "zip",
     }
 
+    # AWS S3 Configuration
+    AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-2")
+    AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
+    AWS_S3_USE_LOCAL_FALLBACK = os.environ.get("AWS_S3_USE_LOCAL_FALLBACK", "false").lower() == "true"
+
     # ─────────────────────────────────────────
     # Reports
     # ─────────────────────────────────────────
 
+    # Local reports output directory (legacy/fallback for development)
     REPORTS_OUTPUT_DIR = os.environ.get(
         "REPORTS_OUTPUT_DIR",
         os.path.join(

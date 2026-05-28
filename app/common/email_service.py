@@ -396,43 +396,51 @@ def send_renewal_reminder(
 
 
 def send_monthly_report_pdf(
-    to_email: str, first_name: str, council_name: str,
-    period_label: str, report_path: str
+    to_email: str,
+    first_name: str,
+    council_name: str,
+    period_label: str,
+    subject: str,
+    text: str,
+    html: str,
+    pdf_filename: str,
+    pdf_content: bytes,
 ) -> bool:
     """
     Send the automated monthly performance report PDF as an attachment.
-    """
-    subject = f"GrantThrive — Monthly Performance Report: {council_name} — {period_label}"
     
-    html = f"""
-<h2>Hi {first_name}, your monthly performance report is ready</h2>
-<p>Please find attached the automated Monthly Performance Report for <strong>{council_name}</strong> covering the period <strong>{period_label}</strong>.</p>
-<div class="info-box">
-  <p><strong>The report includes:</strong></p>
-  <p>1. Grant Program Overview</p>
-  <p>2. Applications & Processing Times</p>
-  <p>3. Budget Allocation</p>
-  <p>4. Community Engagement</p>
-  <p>5. Cost Savings & Efficiency</p>
-  <p>6. Review & Assessment Activity</p>
-</div>
-<p>If you have any questions about the data in this report, please contact your GrantThrive administrator.</p>
-<p><strong>The GrantThrive Team</strong></p>"""
-
-    text = (
-        f"Hi {first_name},\n\n"
-        f"Please find attached the automated Monthly Performance Report for {council_name} "
-        f"covering the period {period_label}.\n\n"
-        f"If you have any questions, please contact your GrantThrive administrator.\n\n"
-        f"The GrantThrive Team"
-    )
-
+    Parameters
+    ----------
+    to_email : str
+        Recipient email address.
+    first_name : str
+        Recipient first name for greeting.
+    council_name : str
+        Council name for context.
+    period_label : str
+        Report period (e.g. "January 2025").
+    subject : str
+        Email subject line.
+    text : str
+        Plain text version of email body.
+    html : str
+        HTML version of email body (without wrapper).
+    pdf_filename : str
+        Name of the PDF attachment (e.g. "monthly_report_council_2025_01.pdf").
+    pdf_content : bytes
+        PDF file content as bytes (can come from S3, local file, or BytesIO).
+    
+    Returns
+    -------
+    bool
+        True if email was sent successfully (or would be sent in dev mode).
+    """
     full_html = _email_wrapper(html, preheader=subject)
 
     if not _ses_enabled():
         logger.info(
-            "DEV MODE — Email not sent (Attachment: %s):\n  To: %s\n  Subject: %s",
-            os.path.basename(report_path), to_email, subject,
+            "DEV MODE — Email not sent (Report Attachment: %s):\n  To: %s\n  Subject: %s",
+            pdf_filename, to_email, subject,
         )
         return True
 
@@ -453,11 +461,10 @@ def send_monthly_report_pdf(
         body.attach(MIMEText(full_html, 'html', 'utf-8'))
         msg.attach(body)
 
-        # Add attachment
-        with open(report_path, 'rb') as f:
-            part = MIMEApplication(f.read(), Name=os.path.basename(report_path))
-            part['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
-            msg.attach(part)
+        # Add PDF attachment from bytes
+        part = MIMEApplication(pdf_content, Name=pdf_filename)
+        part['Content-Disposition'] = f'attachment; filename="{pdf_filename}"'
+        msg.attach(part)
 
         client = boto3.client(
             'ses',
