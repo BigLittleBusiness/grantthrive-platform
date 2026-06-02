@@ -16,6 +16,12 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "shared_infra_owner_environment" {
+  type        = string
+  description = "Environment that owns shared ALB/RDS resources."
+  default     = "uat"
+}
+
 variable "domain_name" {
   type        = string
   description = "Primary domain for the GrantThrive platform."

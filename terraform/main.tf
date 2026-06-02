@@ -2,6 +2,62 @@ resource "random_password" "db_password" {
   length  = 24
   special = false
 }
+moved {
+  from = aws_db_subnet_group.backend
+  to   = aws_db_subnet_group.backend[0]
+}
+
+moved {
+  from = aws_db_instance.backend
+  to   = aws_db_instance.backend[0]
+}
+
+moved {
+  from = aws_lb.backend
+  to   = aws_lb.backend[0]
+}
+
+data "aws_db_instance" "shared_rds" {
+  count                  = local.use_shared_rds_alb ? 1 : 0
+  db_instance_identifier = "${local.shared_name_prefix}-db"
+}
+
+data "aws_db_subnet_group" "shared_rds" {
+  count = local.use_shared_rds_alb ? 1 : 0
+  name  = data.aws_db_instance.shared_rds[0].db_subnet_group
+}
+
+data "aws_lb" "shared_alb" {
+  count = local.use_shared_rds_alb ? 1 : 0
+  name  = substr("${local.shared_name_prefix}-alb", 0, 32)
+}
+
+data "aws_security_group" "shared_db" {
+  count = local.use_shared_rds_alb ? 1 : 0
+  name  = "${local.shared_name_prefix}-db"
+}
+
+data "aws_secretsmanager_secret" "shared_prod_app_config" {
+  count = local.use_shared_rds_alb ? 1 : 0
+  name  = "${local.shared_name_prefix}/prod/app-config"
+}
+
+data "aws_secretsmanager_secret_version" "shared_prod_app_config" {
+  count     = local.use_shared_rds_alb ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.shared_prod_app_config[0].id
+}
+
+data "aws_lb_listener" "http" {
+  count             = local.use_shared_rds_alb ? 1 : 0
+  load_balancer_arn = data.aws_lb.shared_alb[0].arn
+  port              = 80
+}
+
+data "aws_lb_listener" "https" {
+  count             = local.use_shared_rds_alb && var.alb_certificate_arn != "" ? 1 : 0
+  load_balancer_arn = data.aws_lb.shared_alb[0].arn
+  port              = 443
+}
 
 resource "random_password" "prod_secret_key" {
   length  = 48
@@ -14,95 +70,104 @@ resource "random_password" "uat_secret_key" {
 }
 
 resource "random_password" "prod_field_encryption_key" {
-  length  = 44
+  length  = 32
   special = false
 }
 
 resource "random_password" "uat_field_encryption_key" {
-  length  = 44
+  length  = 32
   special = false
 }
 
 resource "random_password" "prod_field_hmac_key" {
-  length  = 44
+  length  = 32
   special = false
 }
 
 resource "random_password" "uat_field_hmac_key" {
-  length  = 44
+  length  = 32
   special = false
 }
 
 resource "aws_vpc" "this" {
+  count                = local.use_shared_rds_alb ? 0 : 1
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 }
 
 resource "aws_internet_gateway" "this" {
-  vpc_id = aws_vpc.this.id
+  count  = local.use_shared_rds_alb ? 0 : 1
+  vpc_id = aws_vpc.this[0].id
 }
 
 resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.this.id
+  count                   = local.use_shared_rds_alb ? 0 : 2
+  vpc_id                  = aws_vpc.this[0].id
   cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
 }
 
 resource "aws_subnet" "private" {
-  count             = 2
-  vpc_id            = aws_vpc.this.id
+  count             = local.use_shared_rds_alb ? 0 : 2
+  vpc_id            = aws_vpc.this[0].id
   cidr_block        = var.private_subnet_cidrs[count.index]
   availability_zone = local.azs[count.index]
 }
 
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.this.id
+  count  = local.use_shared_rds_alb ? 0 : 1
+  vpc_id = aws_vpc.this[0].id
 }
 
 resource "aws_route" "public_default" {
-  route_table_id         = aws_route_table.public.id
+  count                  = local.use_shared_rds_alb ? 0 : 1
+  route_table_id         = aws_route_table.public[0].id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.this.id
+  gateway_id             = aws_internet_gateway.this[0].id
 }
 
 resource "aws_route_table_association" "public" {
-  count          = 2
+  count          = local.use_shared_rds_alb ? 0 : 2
   subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
+  route_table_id = aws_route_table.public[0].id
 }
 
 resource "aws_eip" "nat" {
+  count  = local.use_shared_rds_alb ? 0 : 1
   domain = "vpc"
 }
 
 resource "aws_nat_gateway" "this" {
-  allocation_id = aws_eip.nat.id
+  count         = local.use_shared_rds_alb ? 0 : 1
+  allocation_id = aws_eip.nat[0].id
   subnet_id     = aws_subnet.public[0].id
 }
 
 resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.this.id
+  count  = local.use_shared_rds_alb ? 0 : 1
+  vpc_id = aws_vpc.this[0].id
 }
 
 resource "aws_route" "private_default" {
-  route_table_id         = aws_route_table.private.id
+  count                  = local.use_shared_rds_alb ? 0 : 1
+  route_table_id         = aws_route_table.private[0].id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.this.id
+  nat_gateway_id         = aws_nat_gateway.this[0].id
 }
 
 resource "aws_route_table_association" "private" {
-  count          = 2
+  count          = local.use_shared_rds_alb ? 0 : 2
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[0].id
 }
 
 resource "aws_security_group" "alb" {
+  count       = local.use_shared_rds_alb ? 0 : 1
   name        = "${local.name_prefix}-alb"
   description = "Public access to the backend ALB"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
 
   lifecycle {
     create_before_destroy = true
@@ -133,7 +198,7 @@ resource "aws_security_group" "alb" {
 resource "aws_security_group" "ecs" {
   name        = "${local.name_prefix}-ecs"
   description = "Backend ECS tasks"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = local.vpc_id
 
   lifecycle {
     create_before_destroy = true
@@ -143,7 +208,7 @@ resource "aws_security_group" "ecs" {
     from_port       = 5000
     to_port         = 5000
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    security_groups = local.use_shared_rds_alb ? data.aws_lb.shared_alb[0].security_groups : [aws_security_group.alb[0].id]
   }
 
   egress {
@@ -155,9 +220,9 @@ resource "aws_security_group" "ecs" {
 }
 
 resource "aws_security_group" "db" {
-  name        = "${var.project_name}-prod-db"
+  name        = "${local.name_prefix}-db"
   description = "RDS access from ECS"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = local.vpc_id
 
   ingress {
     from_port       = 5432
@@ -174,10 +239,20 @@ resource "aws_security_group" "db" {
   }
 }
 
+resource "aws_vpc_security_group_ingress_rule" "prod_ecs_to_shared_db" {
+  count                        = local.use_shared_rds_alb ? 1 : 0
+  security_group_id            = data.aws_security_group.shared_db[0].id
+  referenced_security_group_id = aws_security_group.ecs.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+  description                  = "Allow ${local.name_prefix} ECS tasks to use the shared RDS instance"
+}
+
 resource "aws_security_group" "redis" {
   name        = "${local.name_prefix}-redis"
   description = "Redis access from ECS"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = local.vpc_id
 
   ingress {
     from_port       = 6379
@@ -209,12 +284,14 @@ resource "aws_cloudwatch_log_group" "backend" {
 }
 
 resource "aws_db_subnet_group" "backend" {
-  name       = "${var.project_name}-prod-db"
+  count      = local.use_shared_rds_alb ? 0 : 1
+  name       = "${local.name_prefix}-db"
   subnet_ids = aws_subnet.private[*].id
 }
 
 resource "aws_db_instance" "backend" {
-  identifier                 = "${var.project_name}-prod-db"
+  count                      = local.use_shared_rds_alb ? 0 : 1
+  identifier                 = "${local.name_prefix}-db"
   engine                     = "postgres"
   engine_version             = "16"
   instance_class             = var.db_instance_class
@@ -229,7 +306,7 @@ resource "aws_db_instance" "backend" {
   backup_retention_period    = var.db_backup_retention_days
   deletion_protection        = var.enable_deletion_protection
   skip_final_snapshot        = true
-  db_subnet_group_name       = aws_db_subnet_group.backend.name
+  db_subnet_group_name       = aws_db_subnet_group.backend[0].name
   vpc_security_group_ids     = [aws_security_group.db.id]
   apply_immediately          = true
   auto_minor_version_upgrade = true
@@ -237,7 +314,7 @@ resource "aws_db_instance" "backend" {
 
 resource "aws_elasticache_subnet_group" "redis" {
   name       = "${local.name_prefix}-redis"
-  subnet_ids = aws_subnet.private[*].id
+  subnet_ids = local.private_subnet_ids
 }
 
 resource "aws_elasticache_cluster" "redis" {
@@ -377,10 +454,11 @@ resource "aws_secretsmanager_secret_version" "uat" {
 }
 
 resource "aws_lb" "backend" {
+  count              = local.use_shared_rds_alb ? 0 : 1
   name               = substr("${local.name_prefix}-alb", 0, 32)
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
+  security_groups    = [aws_security_group.alb[0].id]
   subnets            = aws_subnet.public[*].id
 }
 
@@ -388,7 +466,7 @@ resource "aws_lb_target_group" "prod" {
   name        = substr("${local.name_prefix}-prod", 0, 32)
   port        = 5000
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = local.vpc_id
   target_type = "ip"
 
   health_check {
@@ -403,10 +481,11 @@ resource "aws_lb_target_group" "prod" {
 }
 
 resource "aws_lb_target_group" "uat" {
+  count       = local.use_shared_rds_alb ? 0 : 1
   name        = substr("${local.name_prefix}-uat", 0, 32)
   port        = 5000
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = local.vpc_id
   target_type = "ip"
 
   health_check {
@@ -421,7 +500,8 @@ resource "aws_lb_target_group" "uat" {
 }
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.backend.arn
+  count             = local.use_shared_rds_alb ? 0 : 1
+  load_balancer_arn = local.alb_arn
   port              = 80
   protocol          = "HTTP"
 
@@ -448,8 +528,9 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_lb_listener" "https" {
-  count             = var.alb_certificate_arn != "" ? 1 : 0
-  load_balancer_arn = aws_lb.backend.arn
+  count = local.use_shared_rds_alb ? 0 : (var.alb_certificate_arn != "" ? 1 : 0)
+
+  load_balancer_arn = local.alb_arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
@@ -462,18 +543,35 @@ resource "aws_lb_listener" "https" {
 }
 
 resource "aws_lb_listener_rule" "uat" {
-  count        = 1
-  listener_arn = var.alb_certificate_arn != "" ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+  count        = local.use_shared_rds_alb ? 0 : 1
+  listener_arn = var.alb_certificate_arn != "" ? aws_lb_listener.https[0].arn : aws_lb_listener.http[0].arn
   priority     = 10
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.uat.arn
+    target_group_arn = aws_lb_target_group.uat[0].arn
   }
 
   condition {
     host_header {
       values = [local.uat_api_hostname]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "prod" {
+  count        = local.use_shared_rds_alb ? 1 : 0
+  listener_arn = var.alb_certificate_arn != "" ? data.aws_lb_listener.https[0].arn : data.aws_lb_listener.http[0].arn
+  priority     = 5
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.prod.arn
+  }
+
+  condition {
+    host_header {
+      values = [local.api_hostname]
     }
   }
 }
@@ -537,6 +635,7 @@ resource "aws_ecs_task_definition" "prod" {
 }
 
 resource "aws_ecs_task_definition" "uat" {
+  count                    = local.use_shared_rds_alb ? 0 : 1
   family                   = "${local.name_prefix}-uat"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -602,7 +701,7 @@ resource "aws_ecs_service" "prod" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    subnets          = local.private_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = false
   }
@@ -617,20 +716,21 @@ resource "aws_ecs_service" "prod" {
 }
 
 resource "aws_ecs_service" "uat" {
+  count           = local.use_shared_rds_alb ? 0 : 1
   name            = "${local.name_prefix}-uat"
   cluster         = aws_ecs_cluster.this.id
-  task_definition = aws_ecs_task_definition.uat.arn
+  task_definition = aws_ecs_task_definition.uat[0].arn
   desired_count   = var.uat_desired_count
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    subnets          = local.private_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = false
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.uat.arn
+    target_group_arn = aws_lb_target_group.uat[0].arn
     container_name   = "backend"
     container_port   = 5000
   }
@@ -639,27 +739,27 @@ resource "aws_ecs_service" "uat" {
 }
 
 resource "aws_route53_record" "api" {
-  count   = var.route53_zone_id == "" ? 0 : 1
+  count   = var.route53_zone_id == "" ? 0 : (local.use_shared_rds_alb ? 0 : 1)
   zone_id = var.route53_zone_id
   name    = local.api_hostname
   type    = "A"
 
   alias {
-    name                   = aws_lb.backend.dns_name
-    zone_id                = aws_lb.backend.zone_id
+    name                   = local.alb_dns_name
+    zone_id                = local.alb_zone_id
     evaluate_target_health = true
   }
 }
 
 resource "aws_route53_record" "uat_api" {
-  count   = var.route53_zone_id == "" ? 0 : 1
+  count   = var.route53_zone_id == "" ? 0 : (local.use_shared_rds_alb ? 0 : 1)
   zone_id = var.route53_zone_id
   name    = local.uat_api_hostname
   type    = "A"
 
   alias {
-    name                   = aws_lb.backend.dns_name
-    zone_id                = aws_lb.backend.zone_id
+    name                   = local.alb_dns_name
+    zone_id                = local.alb_zone_id
     evaluate_target_health = true
   }
 }

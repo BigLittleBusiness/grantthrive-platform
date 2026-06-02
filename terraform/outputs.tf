@@ -24,12 +24,12 @@ output "prod_service_name" {
 }
 
 output "uat_service_name" {
-  value       = aws_ecs_service.uat.name
+  value       = length(aws_ecs_service.uat) > 0 ? aws_ecs_service.uat[0].name : ""
   description = "UAT ECS service name."
 }
 
 output "rds_endpoint" {
-  value       = aws_db_instance.backend.address
+  value       = local.rds_instance_address
   description = "RDS endpoint."
 }
 

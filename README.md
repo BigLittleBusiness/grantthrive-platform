@@ -73,10 +73,22 @@ AWS_PROFILE=biglittle ./scripts/deploy.sh prod
 ## Deployment behavior and current alignment
 
 - Backend image is built for linux/amd64 and pushed to ECR by scripts/deploy.sh.
-- ECS service update is forced by scripts/deploy.sh and waits for service stability.
+- scripts/deploy.sh bootstraps the target logical database and runs `flask db upgrade` before forcing ECS deployment.
+- ECS service update is forced by scripts/deploy.sh and waits for service stability with status output.
 - UAT API endpoint is https://api.uat.grantthrive.com.
+- Production API endpoint is https://api.grantthrive.com.
 - CORS allowlist now includes FRONTEND_BASE_URL from ECS environment, so UAT frontend origin is accepted.
 - S3 upload bucket is injected into ECS via AWS_S3_BUCKET and used by file upload and retrieval routes.
+- UAT and production share the UAT-owned ALB and RDS instance, while ECS, Redis, ECR, secrets, and document buckets remain environment-specific.
+
+Validate deployed APIs:
+
+```bash
+curl -i -H 'Origin: https://app.uat.grantthrive.com' https://api.uat.grantthrive.com/api/health
+curl -i -H 'Origin: https://app.grantthrive.com' https://api.grantthrive.com/api/health
+```
+
+For fresh environments, do not rely on `/api/health` alone. It checks database connectivity, but registration also requires the Alembic schema. The deploy script now runs migrations automatically.
 
 ## Terraform references
 
