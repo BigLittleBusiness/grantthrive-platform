@@ -92,6 +92,24 @@ For fresh environments, do not rely on `/api/health` alone. It checks database c
 
 ## Terraform references
 
+Terraform remote state is managed outside this repo by `../grantthrive-state-management`.
+
+New developers should bootstrap or verify state access before running backend Terraform:
+
+```bash
+cd ../grantthrive-state-management
+AWS_PROFILE=biglittle terraform init
+AWS_PROFILE=biglittle terraform apply
+```
+
+Then initialize this repo's backend Terraform and select a workspace:
+
+```bash
+cd ../grantthrive-platform/terraform
+AWS_PROFILE=biglittle terraform init
+AWS_PROFILE=biglittle terraform workspace select uat || AWS_PROFILE=biglittle terraform workspace new uat
+```
+
 Use the Terraform README for full infra details and operational commands:
 
 - terraform/README.md
