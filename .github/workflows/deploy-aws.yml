@@ -1,0 +1,106 @@
+name: GrantThrive Backend AWS Deploy
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options:
+          - uat
+          - prod
+
+concurrency:
+  group: backend-aws-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.target_env || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-southeast-2
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  deploy:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine target environment
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TARGET_ENV="${{ inputs.target_env }}"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            TARGET_ENV="prod"
+          elif [[ "${{ github.ref_name }}" == "staging" ]]; then
+            TARGET_ENV="uat"
+          else
+            echo "Unsupported branch: ${{ github.ref_name }}" >&2
+            exit 1
+          fi
+
+          if [[ "$TARGET_ENV" == "prod" ]]; then
+            TFVARS="terraform.prod.tfvars"
+            IMAGE_TAG="prod-latest"
+            HEALTH_URL="https://api.grantthrive.com/api/health"
+            HEALTH_ORIGIN="https://app.grantthrive.com"
+          else
+            TFVARS="terraform.uat.tfvars"
+            IMAGE_TAG="uat-latest"
+            HEALTH_URL="https://api.uat.grantthrive.com/api/health"
+            HEALTH_ORIGIN="https://app.uat.grantthrive.com"
+          fi
+
+          echo "TARGET_ENV=$TARGET_ENV" >> "$GITHUB_ENV"
+          echo "TFVARS=$TFVARS" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "HEALTH_URL=$HEALTH_URL" >> "$GITHUB_ENV"
+          echo "HEALTH_ORIGIN=$HEALTH_ORIGIN" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate required Terraform variables file
+        run: |
+          test -f "terraform/${TFVARS}" || {
+            echo "Missing terraform/${TFVARS}. Commit the env tfvars file or generate it before this step." >&2
+            exit 1
+          }
+
+      - name: Terraform init
+        run: terraform -chdir=terraform init
+
+      - name: Select Terraform workspace
+        run: terraform -chdir=terraform workspace select "$TARGET_ENV" || terraform -chdir=terraform workspace new "$TARGET_ENV"
+
+      - name: Terraform validate
+        run: terraform -chdir=terraform validate
+
+      - name: Terraform apply
+        run: terraform -chdir=terraform apply -auto-approve -var-file="$TFVARS"
+
+      - name: Deploy backend application
+        run: ./scripts/deploy.sh "$TARGET_ENV" --region "$AWS_REGION" --tag "$IMAGE_TAG"
+
+      - name: Verify backend health and CORS
+        run: |
+          curl -fsS -i -H "Origin: ${HEALTH_ORIGIN}" "$HEALTH_URL"
+

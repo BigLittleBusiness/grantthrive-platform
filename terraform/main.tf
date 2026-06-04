@@ -224,6 +224,10 @@ resource "aws_security_group" "db" {
   description = "RDS access from ECS"
   vpc_id      = local.vpc_id
 
+  lifecycle {
+    ignore_changes = [ingress]
+  }
+
   ingress {
     from_port       = 5432
     to_port         = 5432

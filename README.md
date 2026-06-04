@@ -90,6 +90,41 @@ curl -i -H 'Origin: https://app.grantthrive.com' https://api.grantthrive.com/api
 
 For fresh environments, do not rely on `/api/health` alone. It checks database connectivity, but registration also requires the Alembic schema. The deploy script now runs migrations automatically.
 
+## GitHub CI/CD
+
+The active GitHub Actions workflow is:
+
+- `.github/workflows/deploy-aws.yml`
+
+The previous EC2 deployment workflow is retained for reference but disabled:
+
+- `.github/workflows/deploy.legacy.disabled`
+
+Branch triggers:
+
+| Branch | Target environment | What runs |
+|--------|--------------------|-----------|
+| `staging` | UAT | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
+| `main` | Production | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
+
+Manual deployment is also available from GitHub Actions using `workflow_dispatch` with `target_env` set to `uat` or `prod`.
+
+Required GitHub Actions secrets:
+
+```text
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+```
+
+The workflow expects these files to be present in the repository:
+
+```text
+terraform/terraform.uat.tfvars
+terraform/terraform.prod.tfvars
+```
+
+If either tfvars file is intentionally not committed, add a workflow step to generate it from GitHub secrets before `Terraform apply`.
+
 ## Terraform references
 
 Terraform remote state is managed outside this repo by `../grantthrive-state-management`.
