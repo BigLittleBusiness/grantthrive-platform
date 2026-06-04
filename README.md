@@ -105,7 +105,7 @@ Branch triggers:
 | Branch | Target environment | What runs |
 |--------|--------------------|-----------|
 | `staging` | UAT | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
-| `main` | Production | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
+| `prod` | Production | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
 
 Manual deployment is also available from GitHub Actions using `workflow_dispatch` with `target_env` set to `uat` or `prod`.
 

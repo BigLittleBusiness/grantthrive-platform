@@ -21,6 +21,7 @@ def health_check():
         'status': 'ok',
         'service': 'grantthrive-backend',
         'domain': 'grantthrive.com',
+        'deployment_marker': 'ci-cd-branch-validation-2026-06-04',
     }
 
     # Check database connectivity

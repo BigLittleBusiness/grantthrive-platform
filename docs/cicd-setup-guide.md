@@ -1,6 +1,6 @@
 # GrantThrive CI/CD Setup Guide
 
-This document provides the complete instructions for configuring the CI/CD pipelines for both the `GrantThrive-frontend` and `grantthrive-platform` repositories. Once set up, any push to the `main` branch will automatically test, build, and deploy the application to your AWS EC2 server.
+This legacy EC2 CI/CD guide is retained for historical reference. The active AWS workflows deploy UAT from the `staging` branch and production from the `prod` branch.
 
 ---
 

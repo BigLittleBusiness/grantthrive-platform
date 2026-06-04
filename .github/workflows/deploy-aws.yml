@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - staging
-      - main
+      - prod
   workflow_dispatch:
     inputs:
       target_env:
@@ -38,7 +38,7 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TARGET_ENV="${{ inputs.target_env }}"
-          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+          elif [[ "${{ github.ref_name }}" == "prod" ]]; then
             TARGET_ENV="prod"
           elif [[ "${{ github.ref_name }}" == "staging" ]]; then
             TARGET_ENV="uat"
@@ -103,4 +103,3 @@ jobs:
       - name: Verify backend health and CORS
         run: |
           curl -fsS -i -H "Origin: ${HEALTH_ORIGIN}" "$HEALTH_URL"
-
