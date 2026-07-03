@@ -91,25 +91,29 @@ def run_monthly_reports_command(dry_run, output_dir):
 )
 @click.option(
     "--admin-email",
-    default=lambda: os.environ.get("GT_TEST_ADMIN_EMAIL") or "council_admin_test@grantthrive.com",
+    envvar="GT_TEST_ADMIN_EMAIL",
+    default="council_admin_test@grantthrive.com",
     show_default=True,
     help="Email address for the council_admin test account.",
 )
 @click.option(
     "--admin-password",
-    default=lambda: os.environ.get("GT_TEST_ADMIN_PASSWORD") or "GZS7dR^oU%5Mm8Hz",
+    envvar="GT_TEST_ADMIN_PASSWORD",
+    default="GZS7dR^oU%5Mm8Hz",
     show_default=False,
     help="Password for the council_admin test account.",
 )
 @click.option(
     "--staff-email",
-    default=lambda: os.environ.get("GT_TEST_STAFF_EMAIL") or "council_staff_test@grantthrive.com",
+    envvar="GT_TEST_STAFF_EMAIL",
+    default="council_staff_test@grantthrive.com",
     show_default=True,
     help="Email address for the council_staff test account.",
 )
 @click.option(
     "--staff-password",
-    default=lambda: os.environ.get("GT_TEST_STAFF_PASSWORD") or "AoR0VFl4lEyRxym#",
+    envvar="GT_TEST_STAFF_PASSWORD",
+    default="AoR0VFl4lEyRxym#",
     show_default=False,
     help="Password for the council_staff test account.",
 )
