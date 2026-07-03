@@ -105,9 +105,10 @@ The deploy script:
 2. Builds and pushes a linux/amd64 Docker image with `docker buildx`.
 3. Runs a one-off ECS task to create the target logical database if missing.
 4. Runs `flask db upgrade` in a one-off ECS task.
-5. Forces a new ECS service deployment.
-6. Polls ECS service stability with status output.
-7. Prints recent ECS events and CloudWatch logs if the service does not stabilize.
+5. Runs `flask seed-test-accounts` in a one-off ECS task when the deploy script is called with `--seed-test-accounts`.
+6. Forces a new ECS service deployment.
+7. Polls ECS service stability with status output.
+8. Prints recent ECS events and CloudWatch logs if the service does not stabilize.
 
 Options:
 
@@ -117,6 +118,7 @@ AWS_PROFILE=biglittle ./scripts/deploy.sh prod --region ap-southeast-2 --skip-bu
 AWS_PROFILE=biglittle ./scripts/deploy.sh prod --region ap-southeast-2 --tag release-20260602
 AWS_PROFILE=biglittle ./scripts/deploy.sh prod --region ap-southeast-2 --skip-db-bootstrap
 AWS_PROFILE=biglittle ./scripts/deploy.sh prod --region ap-southeast-2 --skip-migrations
+AWS_PROFILE=biglittle ./scripts/deploy.sh uat --region ap-southeast-2 --seed-test-accounts
 ```
 
 ## Database Bootstrap
@@ -138,6 +140,33 @@ flask db upgrade
 ```
 
 This is required for fresh databases. `/api/health` can pass with only `SELECT 1`, while registration and other application flows still fail if the Alembic schema has not been applied.
+
+## Test Account Seeding
+
+The backend includes a Flask CLI command:
+
+```bash
+flask --app manage:app seed-test-accounts
+```
+
+It creates or repairs:
+
+- Test council: `GrantThrive Test Council`
+- Council admin: `council_admin_test@grantthrive.com`
+- Council staff: `council_staff_test@grantthrive.com`
+
+The operation is idempotent. Existing test users are updated in place with the expected role, council, active/approved flags, and password hash, so repeat CI/CD runs do not fail because of duplicate rows.
+
+GitHub Actions runs this automatically for both UAT and Production.
+
+Optional GitHub Actions settings:
+
+```text
+GT_TEST_ADMIN_PASSWORD      # secret
+GT_TEST_STAFF_PASSWORD      # secret
+GT_TEST_ADMIN_EMAIL         # variable
+GT_TEST_STAFF_EMAIL         # variable
+```
 
 ## Runtime Secrets
 

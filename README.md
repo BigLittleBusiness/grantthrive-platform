@@ -74,6 +74,7 @@ AWS_PROFILE=biglittle ./scripts/deploy.sh prod
 
 - Backend image is built for linux/amd64 and pushed to ECR by scripts/deploy.sh.
 - scripts/deploy.sh bootstraps the target logical database and runs `flask db upgrade` before forcing ECS deployment.
+- CI/CD also runs `flask seed-test-accounts` after migrations for UAT and Production so test accounts are available after each deployment.
 - ECS service update is forced by scripts/deploy.sh and waits for service stability with status output.
 - UAT API endpoint is https://api.uat.grantthrive.com.
 - Production API endpoint is https://api.grantthrive.com.
@@ -104,8 +105,8 @@ Branch triggers:
 
 | Branch | Target environment | What runs |
 |--------|--------------------|-----------|
-| `staging` | UAT | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
-| `prod` | Production | Terraform apply, backend image build/push, database bootstrap, migrations, ECS deployment, health/CORS check |
+| `staging` | UAT | Terraform apply, backend image build/push, database bootstrap, migrations, test-account seeding, ECS deployment, health/CORS check |
+| `prod` | Production | Terraform apply, backend image build/push, database bootstrap, migrations, test-account seeding, ECS deployment, health/CORS check |
 
 Manual deployment is also available from GitHub Actions using `workflow_dispatch` with `target_env` set to `uat` or `prod`.
 
@@ -115,6 +116,17 @@ Required GitHub Actions secrets:
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 ```
+
+Optional test-account secrets and variables:
+
+```text
+GT_TEST_ADMIN_PASSWORD      # secret; overrides the default council_admin test password
+GT_TEST_STAFF_PASSWORD      # secret; overrides the default council_staff test password
+GT_TEST_ADMIN_EMAIL         # variable; optional email override
+GT_TEST_STAFF_EMAIL         # variable; optional email override
+```
+
+The seed command is idempotent. If the test council or users already exist, it repairs them in place by resetting the role, council, active/approved flags, and password hash. This prevents repeat CI/CD deployments from failing on duplicate data and keeps the test login credentials usable.
 
 The workflow expects these files to be present in the repository:
 

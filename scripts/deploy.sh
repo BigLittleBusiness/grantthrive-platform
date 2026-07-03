@@ -8,7 +8,7 @@ TF_DIR="$ROOT_DIR/terraform"
 usage() {
   cat <<EOF
 Usage:
-  scripts/deploy.sh <prod|uat|staging> [--tag <image_tag>] [--dockerfile <path>] [--task-definition <arn_or_family_revision>] [--region <aws_region>] [--skip-build] [--skip-db-bootstrap] [--skip-migrations]
+  scripts/deploy.sh <prod|uat|staging> [--tag <image_tag>] [--dockerfile <path>] [--task-definition <arn_or_family_revision>] [--region <aws_region>] [--skip-build] [--skip-db-bootstrap] [--skip-migrations] [--seed-test-accounts]
 
 Examples:
   scripts/deploy.sh prod
@@ -34,6 +34,7 @@ IMAGE_TAG=""
 SKIP_BUILD="false"
 SKIP_DB_BOOTSTRAP="false"
 SKIP_MIGRATIONS="false"
+SEED_TEST_ACCOUNTS="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +64,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-migrations)
       SKIP_MIGRATIONS="true"
+      shift
+      ;;
+    --seed-test-accounts)
+      SEED_TEST_ACCOUNTS="true"
+      shift
+      ;;
+    --skip-seed-test-accounts)
+      SEED_TEST_ACCOUNTS="false"
       shift
       ;;
     *)
@@ -286,6 +295,79 @@ JSON
   fi
 }
 
+run_seed_test_accounts() {
+  local task_definition="$1"
+  local network_file overrides_file task_arn exit_code
+
+  network_file="$(mktemp)"
+  overrides_file="$(mktemp)"
+
+  run_aws ecs describe-services \
+    --cluster "$CLUSTER_NAME" \
+    --services "$SERVICE_NAME" \
+    --query 'services[0].networkConfiguration' \
+    --output json >"$network_file"
+
+  python3 - "$overrides_file" <<'PY'
+import json
+import os
+import sys
+
+env_names = [
+    "GT_TEST_ADMIN_EMAIL",
+    "GT_TEST_ADMIN_PASSWORD",
+    "GT_TEST_STAFF_EMAIL",
+    "GT_TEST_STAFF_PASSWORD",
+]
+environment = [
+    {"name": name, "value": os.environ[name]}
+    for name in env_names
+    if os.environ.get(name)
+]
+payload = {
+    "containerOverrides": [
+        {
+            "name": "backend",
+            "command": ["flask", "--app", "manage:app", "seed-test-accounts"],
+            "environment": environment,
+        }
+    ]
+}
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+  echo "Seeding test accounts for ${TARGET_ENV} using ${task_definition}"
+  task_arn="$(run_aws ecs run-task \
+    --cluster "$CLUSTER_NAME" \
+    --task-definition "$task_definition" \
+    --launch-type FARGATE \
+    --network-configuration "file://${network_file}" \
+    --overrides "file://${overrides_file}" \
+    --query 'tasks[0].taskArn' \
+    --output text)"
+
+  rm -f "$network_file" "$overrides_file"
+
+  if [[ -z "$task_arn" || "$task_arn" == "None" ]]; then
+    echo "Test account seed task was not started." >&2
+    return 1
+  fi
+
+  run_aws ecs wait tasks-stopped --cluster "$CLUSTER_NAME" --tasks "$task_arn"
+  exit_code="$(run_aws ecs describe-tasks \
+    --cluster "$CLUSTER_NAME" \
+    --tasks "$task_arn" \
+    --query 'tasks[0].containers[0].exitCode' \
+    --output text)"
+
+  if [[ "$exit_code" != "0" ]]; then
+    echo "Test account seed task failed for ${task_arn} with exit code ${exit_code}." >&2
+    print_service_diagnostics
+    return 1
+  fi
+}
+
 if [[ "$SKIP_BUILD" != "true" ]]; then
   if [[ ! -f "$ROOT_DIR/$DOCKERFILE_PATH" ]]; then
     echo "Dockerfile not found at: $DOCKERFILE_PATH" >&2
@@ -321,6 +403,11 @@ fi
 if [[ "$SKIP_MIGRATIONS" != "true" ]]; then
   SERVICE_TASK_DEFINITION="${SERVICE_TASK_DEFINITION:-${TASK_DEFINITION:-$(run_aws ecs describe-services --cluster "$CLUSTER_NAME" --services "$SERVICE_NAME" --query 'services[0].taskDefinition' --output text)}}"
   run_migrations "$SERVICE_TASK_DEFINITION"
+fi
+
+if [[ "$SEED_TEST_ACCOUNTS" == "true" ]]; then
+  SERVICE_TASK_DEFINITION="${SERVICE_TASK_DEFINITION:-${TASK_DEFINITION:-$(run_aws ecs describe-services --cluster "$CLUSTER_NAME" --services "$SERVICE_NAME" --query 'services[0].taskDefinition' --output text)}}"
+  run_seed_test_accounts "$SERVICE_TASK_DEFINITION"
 fi
 
 if [[ -n "$TASK_DEFINITION" ]]; then

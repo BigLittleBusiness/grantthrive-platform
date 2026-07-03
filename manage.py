@@ -91,25 +91,25 @@ def run_monthly_reports_command(dry_run, output_dir):
 )
 @click.option(
     "--admin-email",
-    default="council_admin_test@grantthrive.com",
+    default=lambda: os.environ.get("GT_TEST_ADMIN_EMAIL") or "council_admin_test@grantthrive.com",
     show_default=True,
     help="Email address for the council_admin test account.",
 )
 @click.option(
     "--admin-password",
-    default="GZS7dR^oU%5Mm8Hz",
+    default=lambda: os.environ.get("GT_TEST_ADMIN_PASSWORD") or "GZS7dR^oU%5Mm8Hz",
     show_default=False,
     help="Password for the council_admin test account.",
 )
 @click.option(
     "--staff-email",
-    default="council_staff_test@grantthrive.com",
+    default=lambda: os.environ.get("GT_TEST_STAFF_EMAIL") or "council_staff_test@grantthrive.com",
     show_default=True,
     help="Email address for the council_staff test account.",
 )
 @click.option(
     "--staff-password",
-    default="AoR0VFl4lEyRxym#",
+    default=lambda: os.environ.get("GT_TEST_STAFF_PASSWORD") or "AoR0VFl4lEyRxym#",
     show_default=False,
     help="Password for the council_staff test account.",
 )
@@ -127,12 +127,13 @@ def seed_test_accounts_command(
       3. A council_staff user  (council_staff_test@grantthrive.com)
 
     Both accounts are immediately active and approved — no approval
-    workflow is required.  Existing accounts are left untouched.
+    workflow is required. Existing accounts are repaired in place so this
+    command is safe to run repeatedly from CI/CD.
 
     \b
     Usage:
-      FLASK_APP=wsgi.py flask seed-test-accounts
-      FLASK_APP=wsgi.py flask seed-test-accounts --subdomain my-test
+      flask --app manage:app seed-test-accounts
+      flask --app manage:app seed-test-accounts --subdomain my-test
     """
     from app.models import Council, User
     from app.common.password import hash_password
@@ -153,6 +154,8 @@ def seed_test_accounts_command(
         )
     else:
         slug = Council.make_slug(council_name)
+        if Council.query.filter_by(slug=slug).first():
+            slug = subdomain
         council = Council(
             name             = council_name,
             subdomain        = subdomain,
@@ -179,13 +182,22 @@ def seed_test_accounts_command(
 
     # ── Helper: create or skip a user ────────────────────────────────────────
     def _ensure_user(email, password, role, first_name, last_name):
-        """Create user if not present; skip with a notice if already exists."""
+        """Create or repair a user so repeated seed runs converge cleanly."""
         hmac = hmac_index(email.strip().lower())
         existing = User.query.filter_by(email_hmac=hmac).first()
         if existing:
+            existing.role = role
+            existing.council_id = council.id
+            existing.is_active = True
+            existing.is_approved = True
+            existing.first_name = first_name
+            existing.last_name = last_name
+            existing.position = "Test Account"
+            existing.department = "Quality Assurance"
+            existing.set_password(password)
             click.echo(
                 click.style(
-                    f"  ✓ {role} already exists: {email} (id={existing.id}) — skipped",
+                    f"  ✓ {role} repaired: {email} (id={existing.id})",
                     fg="yellow",
                 )
             )

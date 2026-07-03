@@ -98,7 +98,12 @@ jobs:
         run: terraform -chdir=terraform apply -auto-approve -var-file="$TFVARS"
 
       - name: Deploy backend application
-        run: ./scripts/deploy.sh "$TARGET_ENV" --region "$AWS_REGION" --tag "$IMAGE_TAG"
+        env:
+          GT_TEST_ADMIN_EMAIL: ${{ vars.GT_TEST_ADMIN_EMAIL }}
+          GT_TEST_ADMIN_PASSWORD: ${{ secrets.GT_TEST_ADMIN_PASSWORD }}
+          GT_TEST_STAFF_EMAIL: ${{ vars.GT_TEST_STAFF_EMAIL }}
+          GT_TEST_STAFF_PASSWORD: ${{ secrets.GT_TEST_STAFF_PASSWORD }}
+        run: ./scripts/deploy.sh "$TARGET_ENV" --region "$AWS_REGION" --tag "$IMAGE_TAG" --seed-test-accounts
 
       - name: Verify backend health and CORS
         run: |
