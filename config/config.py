@@ -117,6 +117,18 @@ class Config:
     AWS_S3_USE_LOCAL_FALLBACK = os.environ.get("AWS_S3_USE_LOCAL_FALLBACK", "false").lower() == "true"
 
     # ─────────────────────────────────────────
+    # AI / AWS Bedrock
+    # ─────────────────────────────────────────
+    # Safe-off by default. Enable only after Bedrock model access, a published
+    # guardrail, privacy review, and pilot approval are in place.
+    AI_FEATURES_ENABLED = os.environ.get("AI_FEATURES_ENABLED", "false").lower() == "true"
+    AWS_BEDROCK_MODEL_ID = os.environ.get("AWS_BEDROCK_MODEL_ID")
+    AWS_BEDROCK_GUARDRAIL_ID = os.environ.get("AWS_BEDROCK_GUARDRAIL_ID")
+    AWS_BEDROCK_GUARDRAIL_VERSION = os.environ.get("AWS_BEDROCK_GUARDRAIL_VERSION")
+    AWS_BEDROCK_MAX_TOKENS = int(os.environ.get("AWS_BEDROCK_MAX_TOKENS", "900"))
+    AWS_BEDROCK_TEMPERATURE = float(os.environ.get("AWS_BEDROCK_TEMPERATURE", "0.2"))
+
+    # ─────────────────────────────────────────
     # Reports
     # ─────────────────────────────────────────
 

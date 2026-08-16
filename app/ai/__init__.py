@@ -1,0 +1,7 @@
+"""GrantThrive AI feature blueprint."""
+
+from flask import Blueprint
+
+bp = Blueprint("ai", __name__)
+
+from app.ai import routes  # noqa: E402,F401

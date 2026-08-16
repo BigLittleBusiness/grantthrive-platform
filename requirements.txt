@@ -77,7 +77,8 @@ redis==5.2.1
 
 python-slugify==8.0.1
 APScheduler==3.10.4
-boto3==1.34.0
+# Bedrock Converse API used by advisory-only AI features.
+boto3>=1.35.0,<2.0.0
 
 # ─────────────────────────────────────────
 # SMS

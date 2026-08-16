@@ -144,6 +144,10 @@ def create_app(config_class=Config):
     from app.api.abn import abn_bp
     app.register_blueprint(abn_bp, url_prefix="/api")
 
+    # AI (advisory-only AWS Bedrock features)
+    from app.ai import bp as ai_bp
+    app.register_blueprint(ai_bp, url_prefix="/api/ai")
+
     # ── Tenant middleware ──────────────────────
     from app.tenancy.middleware import resolve_tenant
 

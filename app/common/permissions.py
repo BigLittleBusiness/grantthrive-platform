@@ -159,6 +159,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "council:update",
         # QR codes
         "qr:manage",
+        # AI — advisory-only grant creation support
+        "ai:grant_suggestions",
         # Communications
         "communications:manage",
         # Profile
