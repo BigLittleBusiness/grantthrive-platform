@@ -13,12 +13,12 @@ System-admin-only endpoints:
   GET  /api/pricing/admin/history           — audit log of pricing changes
 """
 
-from flask import jsonify, request, g
+from flask import jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.pricing import pricing_bp
 from app.models import PricingConfig, db
-from app.common.decorators import token_required, role_required
+from app.common.decorators import role_required
 from app.common.plans import PLAN_LIMITS, get_plan_limits
 
 
@@ -107,9 +107,8 @@ def get_public_pricing():
 # ── System-admin endpoints ────────────────────────────────────────────────────
 
 @pricing_bp.route('/api/pricing/admin/plans', methods=['GET'])
-@token_required
 @role_required('system_admin')
-def get_admin_pricing():
+def get_admin_pricing(current_user):
     """
     System admin — returns full pricing config with audit metadata.
     """
@@ -124,9 +123,8 @@ def get_admin_pricing():
 
 
 @pricing_bp.route('/api/pricing/admin/plans/<plan_key>', methods=['PUT'])
-@token_required
 @role_required('system_admin')
-def update_plan_pricing(plan_key):
+def update_plan_pricing(current_user, plan_key):
     """
     System admin — update pricing for a specific plan.
 
@@ -186,13 +184,13 @@ def update_plan_pricing(plan_key):
     # Audit trail
     from datetime import datetime, timezone
     cfg.updated_at = datetime.now(timezone.utc)
-    cfg.updated_by = g.current_user.email if hasattr(g, 'current_user') else 'system_admin'
+    cfg.updated_by = getattr(current_user, 'email', None) or 'system_admin'
 
     # Write to pricing audit log
     from app.models import AuditLog
     try:
         log = AuditLog(
-            user_id     = g.current_user.id if hasattr(g, 'current_user') else None,
+            user_id     = current_user.id,
             action      = 'pricing_updated',
             entity_type = 'pricing_config',
             entity_id   = 0,
@@ -216,9 +214,8 @@ def update_plan_pricing(plan_key):
 
 
 @pricing_bp.route('/api/pricing/admin/plans/reset', methods=['POST'])
-@token_required
 @role_required('system_admin')
-def reset_pricing_to_defaults():
+def reset_pricing_to_defaults(current_user):
     """
     System admin — reset all plan prices to the compiled defaults in plans.py.
     Requires confirmation body: { "confirm": true }
@@ -241,7 +238,7 @@ def reset_pricing_to_defaults():
         cfg.addon_community_voting_cents   = 5000
         cfg.addon_grant_mapping_cents      = 5000
         cfg.updated_at                     = datetime.now(timezone.utc)
-        cfg.updated_by                     = g.current_user.email if hasattr(g, 'current_user') else 'system_admin'
+        cfg.updated_by                     = getattr(current_user, 'email', None) or 'system_admin'
 
     try:
         db.session.commit()
@@ -253,9 +250,8 @@ def reset_pricing_to_defaults():
 
 
 @pricing_bp.route('/api/pricing/admin/history', methods=['GET'])
-@token_required
 @role_required('system_admin')
-def get_pricing_history():
+def get_pricing_history(current_user):
     """
     System admin — returns audit log entries for pricing changes.
     """

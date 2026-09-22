@@ -45,9 +45,20 @@ def create_app(config_class=Config):
     init_optimizations(app)
 
     # ── CORS ───────────────────────────────────
+    # CORS_ORIGINS may be a comma-separated list in .env
+    _cors_env = os.environ.get("CORS_ORIGINS", "")
     allowed_origins = [
+        o.strip() for o in _cors_env.split(",") if o.strip()
+    ] or [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://grantthrive.com",
+        "https://www.grantthrive.com",
+        "https://app.grantthrive.com",
+        "https://admin.grantthrive.com",
+        "https://map.grantthrive.com",
+        "https://roi.grantthrive.com",
+        "http://103.1.187.245",
     ]
 
     CORS(
@@ -139,6 +150,10 @@ def create_app(config_class=Config):
     from app.api.abn import abn_bp
     app.register_blueprint(abn_bp, url_prefix="/api")
 
+    # PRICING (routes already include /api/pricing/... paths)
+    from app.pricing.routes import pricing_bp
+    app.register_blueprint(pricing_bp)
+
     # ── Tenant middleware ──────────────────────
     from app.tenancy.middleware import resolve_tenant
 
@@ -153,7 +168,6 @@ def create_app(config_class=Config):
     register_template_filters(app)
 
     # ── Scheduler ──────────────────────────────
-    import os
     if not app.testing and os.environ.get("WERKZEUG_RUN_MAIN") != "false":
         from app.common.scheduled_jobs import init_scheduler
         init_scheduler(app)
