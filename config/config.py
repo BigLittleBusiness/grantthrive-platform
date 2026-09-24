@@ -117,6 +117,16 @@ class Config:
     AWS_S3_USE_LOCAL_FALLBACK = os.environ.get("AWS_S3_USE_LOCAL_FALLBACK", "false").lower() == "true"
 
     # ─────────────────────────────────────────
+    # Public contact forms / Cloudflare Turnstile
+    # ─────────────────────────────────────────
+    # Contact routing and the Turnstile secret are deployment-only settings.
+    # Keep both out of source control and frontend build output.
+    CONTACT_INBOX_EMAIL = os.environ.get("CONTACT_INBOX_EMAIL", "")
+    TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
+    TURNSTILE_EXPECTED_HOSTNAMES = os.environ.get("TURNSTILE_EXPECTED_HOSTNAMES", "")
+    TURNSTILE_TEST_BYPASS = os.environ.get("TURNSTILE_TEST_BYPASS", "false").lower() == "true"
+
+    # ─────────────────────────────────────────
     # Reports
     # ─────────────────────────────────────────
 
