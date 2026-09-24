@@ -54,6 +54,10 @@ def create_app(config_class=Config):
     if frontend_base_url:
         allowed_origins.add(frontend_base_url.rstrip("/"))
 
+    marketing_base_url = os.environ.get("MARKETING_BASE_URL")
+    if marketing_base_url:
+        allowed_origins.add(marketing_base_url.rstrip("/"))
+
     allowed_origins = sorted(allowed_origins)
 
     CORS(
@@ -143,6 +147,10 @@ def create_app(config_class=Config):
     # ABN VALIDATION (Australian Business Register)
     from app.api.abn import abn_bp
     app.register_blueprint(abn_bp, url_prefix="/api")
+
+    # PUBLIC CONTACT FORMS (Turnstile-protected, no public inbox address)
+    from app.contact import bp as contact_bp
+    app.register_blueprint(contact_bp, url_prefix="/api")
 
     # AI (advisory-only AWS Bedrock features)
     from app.ai import bp as ai_bp

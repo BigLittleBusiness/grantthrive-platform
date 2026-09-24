@@ -81,10 +81,7 @@ class Config:
     MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
     MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
 
-    MAIL_DEFAULT_SENDER = os.environ.get(
-        "MAIL_DEFAULT_SENDER",
-        "noreply@grantthrive.com"
-    )
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", "")
 
     # ─────────────────────────────────────────
     # File Uploads & S3 Storage
@@ -127,6 +124,16 @@ class Config:
     AWS_BEDROCK_GUARDRAIL_VERSION = os.environ.get("AWS_BEDROCK_GUARDRAIL_VERSION")
     AWS_BEDROCK_MAX_TOKENS = int(os.environ.get("AWS_BEDROCK_MAX_TOKENS", "900"))
     AWS_BEDROCK_TEMPERATURE = float(os.environ.get("AWS_BEDROCK_TEMPERATURE", "0.2"))
+
+    # ─────────────────────────────────────────
+    # Public contact forms / Cloudflare Turnstile
+    # ─────────────────────────────────────────
+    # Contact routing and the Turnstile secret are deployment-only settings.
+    # Keep both out of source control and frontend build output.
+    CONTACT_INBOX_EMAIL = os.environ.get("CONTACT_INBOX_EMAIL", "")
+    TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
+    TURNSTILE_EXPECTED_HOSTNAMES = os.environ.get("TURNSTILE_EXPECTED_HOSTNAMES", "")
+    TURNSTILE_TEST_BYPASS = os.environ.get("TURNSTILE_TEST_BYPASS", "false").lower() == "true"
 
     # ─────────────────────────────────────────
     # Reports
