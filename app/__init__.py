@@ -154,6 +154,10 @@ def create_app(config_class=Config):
     from app.pricing.routes import pricing_bp
     app.register_blueprint(pricing_bp)
 
+    # PUBLIC CONTACT FORMS (Turnstile-protected, no public inbox address)
+    from app.contact import bp as contact_bp
+    app.register_blueprint(contact_bp, url_prefix="/api")
+
     # ── Tenant middleware ──────────────────────
     from app.tenancy.middleware import resolve_tenant
 

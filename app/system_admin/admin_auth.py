@@ -161,7 +161,7 @@ def admin_login():
       - All attempts (success and failure) are audit-logged.
 
     Request body:
-        { "email": "staff@grantthrive.com", "password": "..." }
+        { "email": "admin@example.invalid", "password": "..." }
 
     Response (200):
         {

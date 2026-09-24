@@ -13,7 +13,7 @@ Configuration (environment variables / .env):
     AWS_SES_REGION        = ap-southeast-2
     AWS_ACCESS_KEY_ID     = <key>
     AWS_SECRET_ACCESS_KEY = <secret>
-    AWS_SES_FROM_EMAIL    = hello@grantthrive.com
+    AWS_SES_FROM_EMAIL    = configured through deployment secrets
     FRONTEND_BASE_URL     = https://app.grantthrive.com   (used in email links)
 """
 
@@ -24,7 +24,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-FROM_EMAIL   = os.environ.get('AWS_SES_FROM_EMAIL', 'hello@grantthrive.com')
+FROM_EMAIL   = os.environ.get('AWS_SES_FROM_EMAIL', '')
 FROM_NAME    = 'GrantThrive'
 FRONTEND_URL = os.environ.get('FRONTEND_BASE_URL', 'https://app.grantthrive.com')
 MARKETING_URL = os.environ.get('MARKETING_BASE_URL', 'https://www.grantthrive.com')
@@ -75,7 +75,7 @@ def _email_wrapper(body_html: str, preheader: str = '') -> str:
     <div class="ftr">
       <p>&copy; {year} GrantThrive. All rights reserved.</p>
       <p>
-        <a href="{MARKETING_URL}/pages/contact.html">Contact Us</a> &middot;
+        <a href="{MARKETING_URL}/contact">Contact Us</a> &middot;
         <a href="{MARKETING_URL}">grantthrive.com</a>
       </p>
       <p style="margin-top:10px;font-size:11px;">
@@ -94,7 +94,13 @@ def _ses_enabled() -> bool:
     return os.environ.get('AWS_SES_ENABLED', 'false').lower() == 'true'
 
 
-def send_email(to_email: str, subject: str, html_body: str, text_body: str = '') -> bool:
+def send_email(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: str = '',
+    reply_to: Optional[str] = None,
+) -> bool:
     """
     Send a transactional email via AWS SES (or log in dev mode).
 
@@ -109,6 +115,10 @@ def send_email(to_email: str, subject: str, html_body: str, text_body: str = '')
         )
         return True
 
+    if not FROM_EMAIL:
+        logger.error("AWS_SES_FROM_EMAIL is not configured")
+        return False
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -117,17 +127,20 @@ def send_email(to_email: str, subject: str, html_body: str, text_body: str = '')
             'ses',
             region_name=os.environ.get('AWS_SES_REGION', 'ap-southeast-2'),
         )
-        client.send_email(
-            Source=f'{FROM_NAME} <{FROM_EMAIL}>',
-            Destination={'ToAddresses': [to_email]},
-            Message={
+        message = {
+            'Source': f'{FROM_NAME} <{FROM_EMAIL}>',
+            'Destination': {'ToAddresses': [to_email]},
+            'Message': {
                 'Subject': {'Data': subject, 'Charset': 'UTF-8'},
                 'Body': {
                     'Html': {'Data': full_html,  'Charset': 'UTF-8'},
                     'Text': {'Data': text_body or subject, 'Charset': 'UTF-8'},
                 },
             },
-        )
+        }
+        if reply_to:
+            message['ReplyToAddresses'] = [reply_to]
+        client.send_email(**message)
         logger.info("SES email sent to %s — %s", to_email, subject)
         return True
 
@@ -144,7 +157,7 @@ def send_registration_confirmation(to_email: str, first_name: str) -> bool:
 <h2>Hi {first_name}, welcome to GrantThrive!</h2>
 <p>Your account has been created successfully. You can now browse grants, submit applications, and engage with your community.</p>
 <a href="{FRONTEND_URL}" class="cta-btn">Go to Your Dashboard &rarr;</a>
-<p>If you did not create this account, please <a href="{MARKETING_URL}/pages/contact.html" style="color:#15803d;">contact us</a> immediately.</p>
+<p>If you did not create this account, please <a href="{MARKETING_URL}/contact" style="color:#15803d;">use the GrantThrive contact form</a> immediately.</p>
 <p>We are glad to have you.<br><strong>The GrantThrive Team</strong></p>"""
     text = f"Hi {first_name},\n\nWelcome to GrantThrive! Your account is ready.\n\nVisit: {FRONTEND_URL}\n\nThe GrantThrive Team"
     return send_email(to_email, subject, html, text)
@@ -161,7 +174,7 @@ def send_welcome_getting_started(to_email: str, first_name: str) -> bool:
   <p><strong>3. Vote on community projects</strong> — Have your say on what gets funded.</p>
 </div>
 <a href="{FRONTEND_URL}" class="cta-btn">Explore Grants &rarr;</a>
-<p>If you have any questions, reply to this email and our team will help.<br><strong>The GrantThrive Team</strong></p>"""
+<p>If you have any questions, please use the <a href="{MARKETING_URL}/contact" style="color:#15803d;">GrantThrive contact form</a>.<br><strong>The GrantThrive Team</strong></p>"""
     text = f"Hi {first_name},\n\nHere are three things to do in GrantThrive:\n1. Browse grants\n2. Submit an application\n3. Vote on community projects\n\nVisit: {FRONTEND_URL}\n\nThe GrantThrive Team"
     return send_email(to_email, subject, html, text)
 

@@ -137,7 +137,7 @@ def create_system_admin(current_user):
 
     Request body:
         {
-            "email":      "jane@grantthrive.com",   (required)
+            "email":      "admin@example.invalid",   (required)
             "first_name": "Jane",                   (required)
             "last_name":  "Smith",                  (required)
             "password":   "Str0ng!Pass#99",         (required, min 12 chars)
@@ -243,7 +243,7 @@ def update_system_admin(current_user, admin_id):
         {
             "first_name": "Jane",
             "last_name":  "Smith",
-            "email":      "jane@grantthrive.com",
+            "email":      "admin@example.invalid",
             "password":   "NewStr0ng!Pass#99"
         }
     """
@@ -599,8 +599,8 @@ def reject_pending_user(current_user, user_id):
         if reason:
             body_lines.append(f"<p><strong>Reason:</strong> {reason}</p>")
         body_lines.append(
-            "<p>If you believe this is an error, please contact "
-            "<a href='mailto:support@grantthrive.com.au'>support@grantthrive.com.au</a>.</p>"
+            "<p>If you believe this is an error, please use the "
+            "<a href='https://grantthrive.com/contact'>GrantThrive contact form</a>.</p>"
         )
         send_email(email, subject, "".join(body_lines))
     except Exception as _e:

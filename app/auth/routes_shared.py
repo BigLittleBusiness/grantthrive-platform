@@ -141,41 +141,41 @@ def demo_login():
             state="VIC",
             plan="professional",
             is_active=True,
-            contact_email="demo@grantthrive.com",
+            contact_email="demo-council@example.invalid",
         )
         db.session.add(demo_council)
         db.session.flush()
     demo_users = {
         "council_admin": {
-            "email": "demo.admin@melbourne.vic.gov.au",
+            "email": "demo-admin@example.invalid",
             "first_name": "Demo",
             "last_name": "Council Admin",
             "role": "council_admin",
             "council_id": demo_council.id,
         },
         "council_staff": {
-            "email": "demo.staff@melbourne.vic.gov.au",
+            "email": "demo-staff@example.invalid",
             "first_name": "Demo",
             "last_name": "Council Staff",
             "role": "council_staff",
             "council_id": demo_council.id,
         },
         "community_member": {
-            "email": "demo.community@example.com",
+            "email": "demo-community@example.invalid",
             "first_name": "Demo",
             "last_name": "Community Member",
             "role": "community_member",
             "council_id": demo_council.id,
         },
         "professional_consultant": {
-            "email": "demo.consultant@grantsuccess.com",
+            "email": "demo-consultant@example.invalid",
             "first_name": "Demo",
             "last_name": "Consultant",
             "role": "professional_consultant",
             "council_id": None,
         },
         "system_admin": {
-            "email": "demo.sysadmin@grantthrive.com",
+            "email": "demo-system-admin@example.invalid",
             "first_name": "Demo",
             "last_name": "System Admin",
             "role": "system_admin",

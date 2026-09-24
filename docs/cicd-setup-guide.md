@@ -56,7 +56,7 @@ This is the most critical step. You must add the following secrets to the GitHub
 | `MAIL_PORT`             | The port for your SMTP server.                                              | `587`                                               |
 | `MAIL_USERNAME`         | The username for your SMTP server (often `apikey` for SendGrid).            | `apikey`                                            |
 | `MAIL_PASSWORD`         | The password or API key for your SMTP server.                               | `SG.xxxxxxxx...`                                    |
-| `MAIL_DEFAULT_SENDER`   | The default "From" address for emails sent by the platform.                 | `"GrantThrive" <noreply@grantthrive.com>`           |
+| `MAIL_DEFAULT_SENDER`   | The default "From" identity for platform emails.                            | Stored in the deployment secret manager              |
 
 ---
 

@@ -223,14 +223,14 @@ def send_trial_welcome_email(
           <div class="step-num">4</div>
           <div class="step-text">
             <strong>Book a demo</strong> — Our team can walk you through the platform
-            and answer any questions. <a href="https://www.grantthrive.com/pages/contact.html" style="color:#15803d;">Book a session</a>.
+            and answer any questions. <a href="https://www.grantthrive.com/contact" style="color:#15803d;">Book a session</a>.
           </div>
         </div>
       </div>
 
       <p>
-        If you have any questions during your trial, reply to this email or visit
-        <a href="https://www.grantthrive.com" style="color:#15803d;">grantthrive.com</a>.
+        If you have any questions during your trial, please use the
+        <a href="https://www.grantthrive.com/contact" style="color:#15803d;">GrantThrive contact form</a>.
       </p>
       <p>
         We are excited to have you on board.<br>
@@ -242,7 +242,7 @@ def send_trial_welcome_email(
         &copy; {datetime.now().year} GrantThrive. All rights reserved.
       </p>
       <p>
-        <a href="https://www.grantthrive.com/pages/contact.html">Contact Us</a> &middot;
+        <a href="https://www.grantthrive.com/contact">Contact Us</a> &middot;
         <a href="https://www.grantthrive.com">grantthrive.com</a>
       </p>
       <p style="margin-top:12px; font-size:11px;">
@@ -267,9 +267,9 @@ NEXT STEPS:
 1. Create your first grant using the Grant Creation Wizard.
 2. Invite your team from the Users section.
 3. Customise your branding in Council Settings.
-4. Book a demo at https://www.grantthrive.com/pages/contact.html
+4. Book a demo at https://www.grantthrive.com/contact
 
-Questions? Reply to this email or visit https://www.grantthrive.com
+Questions? Use the GrantThrive contact form: https://www.grantthrive.com/contact
 
 The GrantThrive Team
 """
