@@ -15,11 +15,15 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.0
+        env:
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          CONTACT_INBOX_EMAIL: ${{ secrets.CONTACT_INBOX_EMAIL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
+          envs: TURNSTILE_SECRET_KEY,CONTACT_INBOX_EMAIL
           script: |
             set -e
 
@@ -27,6 +31,32 @@ jobs:
             git fetch origin
             git checkout master
             git reset --hard origin/master
+            python3 - <<'PY'
+            import os
+            from pathlib import Path
+
+            path = Path('.env')
+            existing = path.read_text(encoding='utf-8').splitlines() if path.exists() else []
+            updates = {
+                'TURNSTILE_SECRET_KEY': os.environ['TURNSTILE_SECRET_KEY'],
+                'TURNSTILE_EXPECTED_HOSTNAMES': 'www.grantthrive.com,grantthrive.com',
+                'CONTACT_INBOX_EMAIL': os.environ['CONTACT_INBOX_EMAIL'],
+            }
+            output = []
+            seen = set()
+            for line in existing:
+                key = line.split('=', 1)[0].strip() if '=' in line and not line.lstrip().startswith('#') else None
+                if key in updates:
+                    output.append(f'{key}={updates[key]}')
+                    seen.add(key)
+                else:
+                    output.append(line)
+            for key, value in updates.items():
+                if key not in seen:
+                    output.append(f'{key}={value}')
+            path.write_text('\n'.join(output).rstrip() + '\n', encoding='utf-8')
+            PY
+            chmod 600 .env
 
             if [[ ! -d venv ]]; then
               python3 -m venv venv
