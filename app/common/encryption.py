@@ -87,6 +87,16 @@ _ENCRYPTION_KEY: bytes | None = _load_key("FIELD_ENCRYPTION_KEY", 32)
 _HMAC_KEY: bytes | None       = _load_key("FIELD_HMAC_KEY", 32)
 
 
+def field_encryption_ready() -> bool:
+    """Return whether AES-256-GCM field encryption is available at runtime.
+
+    Sensitive public submissions use this guard to fail closed in production
+    rather than accepting a record that would otherwise be stored in plaintext.
+    Existing development fixtures may explicitly disable that requirement.
+    """
+    return _ENCRYPTION_KEY is not None
+
+
 # ── Core encryption / decryption ──────────────────────────────────────────────
 
 _NONCE_LEN = 12   # 96-bit nonce — GCM standard

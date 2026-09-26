@@ -149,6 +149,28 @@ def send_email(
         return False
 
 
+def send_public_submission_notification(to_email: str, dashboard_url: str) -> bool:
+    """Notify an administrator without sending submitted personal data.
+
+    The database is the source of truth for public form data. This alert
+    intentionally contains only a link to the RBAC-protected dashboard, keeping
+    visitor details and free-text messages out of email systems.
+    """
+    subject = "GrantThrive - New form submission"
+    html = f"""
+<h2>A new GrantThrive form submission has been received</h2>
+<p>To protect the submitter's information, this email does not include any submission details.</p>
+<a href="{dashboard_url}" class="cta-btn">Open secure admin dashboard &rarr;</a>
+<p>If prompted, sign in with your GrantThrive system-admin account.</p>
+"""
+    text = (
+        "A new GrantThrive form submission has been received.\n\n"
+        "To protect the submitter's information, this email does not include any submission details.\n\n"
+        f"Open the secure admin dashboard: {dashboard_url}"
+    )
+    return send_email(to_email, subject, html, text)
+
+
 # ── Individual email builders ─────────────────────────────────────────────────
 
 def send_registration_confirmation(to_email: str, first_name: str) -> bool:

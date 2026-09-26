@@ -116,6 +116,15 @@ class Config:
     TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
     TURNSTILE_EXPECTED_HOSTNAMES = os.environ.get("TURNSTILE_EXPECTED_HOSTNAMES", "")
     TURNSTILE_TEST_BYPASS = os.environ.get("TURNSTILE_TEST_BYPASS", "false").lower() == "true"
+    # Database-first public form workflow. The recipient receives a content-free
+    # alert and opens the protected system-admin dashboard to view submissions.
+    ADMIN_NOTIFICATION_EMAIL = os.environ.get("ADMIN_NOTIFICATION_EMAIL", "")
+    ADMIN_DASHBOARD_URL = os.environ.get(
+        "ADMIN_DASHBOARD_URL", "https://admin.grantthrive.com/admin/dashboard?tab=form-submissions"
+    )
+    PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED = (
+        os.environ.get("PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED", "true").lower() == "true"
+    )
 
     # ─────────────────────────────────────────
     # Reports

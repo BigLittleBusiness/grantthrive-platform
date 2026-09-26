@@ -17,13 +17,13 @@ jobs:
         uses: appleboy/ssh-action@v1.0.0
         env:
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
-          CONTACT_INBOX_EMAIL: ${{ secrets.CONTACT_INBOX_EMAIL }}
+          ADMIN_NOTIFICATION_EMAIL: ${{ secrets.ADMIN_NOTIFICATION_EMAIL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          envs: TURNSTILE_SECRET_KEY,CONTACT_INBOX_EMAIL
+          envs: TURNSTILE_SECRET_KEY,ADMIN_NOTIFICATION_EMAIL
           script: |
             set -e
 
@@ -40,7 +40,9 @@ jobs:
             updates = {
                 'TURNSTILE_SECRET_KEY': os.environ['TURNSTILE_SECRET_KEY'],
                 'TURNSTILE_EXPECTED_HOSTNAMES': 'www.grantthrive.com,grantthrive.com',
-                'CONTACT_INBOX_EMAIL': os.environ['CONTACT_INBOX_EMAIL'],
+                'ADMIN_NOTIFICATION_EMAIL': os.environ['ADMIN_NOTIFICATION_EMAIL'],
+                'ADMIN_DASHBOARD_URL': 'https://admin.grantthrive.com/admin/dashboard?tab=form-submissions',
+                'PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED': 'true',
             }
             output = []
             seen = set()
@@ -67,7 +69,7 @@ jobs:
             source .env
             set +a
             export FLASK_APP=wsgi:app FLASK_ENV=production
-            venv/bin/flask db upgrade || true
+            venv/bin/flask db upgrade
 
             sudo systemctl restart grantthrive-api
 

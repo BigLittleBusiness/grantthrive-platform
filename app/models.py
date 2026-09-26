@@ -661,6 +661,46 @@ class AuditLog(db.Model):
         return f'<AuditLog {self.action}>'
 
 
+# ── Public Form Submissions ──────────────────────────────────────────────────
+
+class PublicSubmission(db.Model):
+    """A verified public contact or waitlist submission.
+
+    All visitor-supplied data is encrypted at rest.  Only system_admin users
+    may read this record through the dedicated administrative endpoints.
+    Notification delivery is recorded separately from persistence so email
+    remains an alert mechanism rather than the source of truth.
+    """
+    __tablename__ = 'public_submissions'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    submission_type = db.Column(db.String(20), nullable=False, index=True)  # contact | waitlist
+    contact_type    = db.Column(db.String(20), nullable=True, index=True)   # demo | pricing | support | general
+    status          = db.Column(db.String(20), nullable=False, default='new', index=True)
+
+    # Visitor data — AES-256-GCM encrypted by EncryptedString.
+    name         = db.Column(EncryptedString(300), nullable=False)
+    email        = db.Column(EncryptedString(500), nullable=False)
+    organisation = db.Column(EncryptedString(500), nullable=True)
+    phone        = db.Column(EncryptedString(200), nullable=True)
+    message      = db.Column(EncryptedString(8000), nullable=True)
+
+    # Administrator-only working note, also encrypted at rest.
+    internal_note = db.Column(EncryptedString(8000), nullable=True)
+
+    notification_status       = db.Column(db.String(30), nullable=False, default='pending')
+    notification_attempted_at = db.Column(db.DateTime, nullable=True)
+    received_at               = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at                = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    resolved_at               = db.Column(db.DateTime, nullable=True)
+    resolved_by_user_id       = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    resolved_by = db.relationship('User', foreign_keys=[resolved_by_user_id])
+
+    def __repr__(self):
+        return f'<PublicSubmission {self.id} {self.submission_type} {self.status}>'
+
+
 # ── Pricing Configuration ─────────────────────────────────────────────────────
 class PricingConfig(db.Model):
     """

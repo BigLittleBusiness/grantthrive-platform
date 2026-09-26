@@ -1,25 +1,27 @@
 """Turnstile-protected public contact and waitlist endpoints.
 
-This module is intentionally separate from council and applicant communications:
-it receives only messages intended for the GrantThrive team. It neither exposes
-nor accepts a public destination email address.
+Public forms are database-first: a verified submission is committed to the
+protected platform database before an administrator is notified. Notification
+email is deliberately content-free, so email delivery never becomes the system
+of record for a person's details or message.
 """
-
 from __future__ import annotations
 
-import html
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from flask import current_app, jsonify, request
+from sqlalchemy.exc import SQLAlchemyError
 
 from app import db, limiter
 from app.common import email_service
+from app.common.encryption import field_encryption_ready
 from app.contact import bp
 from app.contact.turnstile import TurnstileVerificationError, verify_turnstile_token
-from app.models import AuditLog
+from app.models import AuditLog, PublicSubmission
 
 logger = logging.getLogger(__name__)
 
@@ -61,68 +63,87 @@ def _normalise_text(data: dict[str, Any], key: str, *, required: bool = False) -
     return value
 
 
-def _audit(action: str, metadata: dict[str, str]) -> None:
-    """Persist safe request metadata only; never form contents or email addresses."""
+def _audit(action: str, submission_id: int, metadata: dict[str, str]) -> None:
+    """Persist request metadata only; never public-form content or email addresses."""
     try:
         db.session.add(
             AuditLog(
                 action=action,
-                entity_type="public_contact",
-                entity_id=0,
+                entity_type="public_submission",
+                entity_id=submission_id,
                 new_values=json.dumps(metadata, sort_keys=True),
                 ip_address=_client_ip(),
                 user_agent=(request.headers.get("User-Agent") or "")[:500],
             )
         )
         db.session.commit()
-    except Exception as exc:  # Contact delivery should not be silently lost to an audit issue.
+    except Exception as exc:  # A stored public submission must never be discarded due to audit failure.
         db.session.rollback()
-        logger.error("Unable to write public contact audit record: %s", exc.__class__.__name__)
+        logger.error("Unable to write public submission audit record: %s", exc.__class__.__name__)
 
 
-def _send_contact_email(kind: str, fields: dict[str, str]) -> bool:
-    recipient = current_app.config.get("CONTACT_INBOX_EMAIL", "").strip()
-    if not recipient:
-        logger.error("CONTACT_INBOX_EMAIL is not configured")
-        return False
+def _store_submission(
+    *,
+    submission_type: str,
+    contact_type: str | None,
+    name: str,
+    email: str,
+    organisation: str = "",
+    phone: str = "",
+    message: str = "",
+) -> PublicSubmission | None:
+    """Commit the protected submission before attempting any notification."""
+    if current_app.config.get("PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED", True) and not field_encryption_ready():
+        logger.critical("Refusing public submission storage because field encryption is unavailable")
+        return None
 
-    subject = f"GrantThrive - {CONTACT_TYPES[kind]}"
-    details = [
-        ("Name", fields["name"]),
-        ("Email", fields["email"]),
-        ("Council / organisation", fields["organisation"] or "Not supplied"),
-        ("Phone", fields["phone"] or "Not supplied"),
-    ]
-    details_html = "".join(
-        f"<p><strong>{html.escape(label)}:</strong> {html.escape(value)}</p>" for label, value in details
+    submission = PublicSubmission(
+        submission_type=submission_type,
+        contact_type=contact_type,
+        name=name,
+        email=email,
+        organisation=organisation or None,
+        phone=phone or None,
+        message=message or None,
+        status="new",
+        notification_status="pending",
+        received_at=datetime.now(timezone.utc),
     )
-    text_details = "\n".join(f"{label}: {value}" for label, value in details)
-    html_body = f"""
-<h2>New GrantThrive {html.escape(CONTACT_TYPES[kind].lower())}</h2>
-<div class="info-box">{details_html}</div>
-<h3>Message</h3>
-<p>{html.escape(fields['message']).replace(chr(10), '<br>')}</p>
-"""
-    text_body = f"New GrantThrive {CONTACT_TYPES[kind].lower()}\n\n{text_details}\n\nMessage:\n{fields['message']}"
-    return email_service.send_email(recipient, subject, html_body, text_body, reply_to=fields["email"])
+    try:
+        db.session.add(submission)
+        db.session.commit()
+        return submission
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logger.error("Unable to store public submission: %s", exc.__class__.__name__)
+        return None
 
 
-def _send_waitlist_email(first_name: str, email: str) -> bool:
-    recipient = current_app.config.get("CONTACT_INBOX_EMAIL", "").strip()
-    if not recipient:
-        logger.error("CONTACT_INBOX_EMAIL is not configured")
-        return False
+def _notify_admin(submission: PublicSubmission) -> str:
+    """Send a data-free alert after persistence and record the delivery outcome."""
+    recipient = (current_app.config.get("ADMIN_NOTIFICATION_EMAIL") or "").strip()
+    dashboard_url = (current_app.config.get("ADMIN_DASHBOARD_URL") or "").strip()
+    if not recipient or not dashboard_url:
+        status = "not_configured"
+        logger.error("Administrator notification routing is not configured")
+    else:
+        delivered = email_service.send_public_submission_notification(recipient, dashboard_url)
+        status = "sent" if delivered else "failed"
 
-    subject = "GrantThrive - Waitlist signup"
-    html_body = f"""
-<h2>New GrantThrive waitlist signup</h2>
-<div class="info-box">
-  <p><strong>First name:</strong> {html.escape(first_name)}</p>
-  <p><strong>Email:</strong> {html.escape(email)}</p>
-</div>
-"""
-    text_body = f"New GrantThrive waitlist signup\n\nFirst name: {first_name}\nEmail: {email}"
-    return email_service.send_email(recipient, subject, html_body, text_body, reply_to=email)
+    try:
+        submission.notification_status = status
+        submission.notification_attempted_at = datetime.now(timezone.utc)
+        db.session.commit()
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logger.error("Unable to record public submission notification outcome: %s", exc.__class__.__name__)
+    return status
+
+
+def _success_message(submission_type: str) -> str:
+    if submission_type == "waitlist":
+        return "Thanks — you are on the GrantThrive launch list."
+    return "Thanks — your GrantThrive enquiry has been received."
 
 
 @bp.post("/contact")
@@ -157,12 +178,21 @@ def submit_contact_form():
     except ValueError as exc:
         return _json_error(str(exc), 422)
 
-    delivered = _send_contact_email(kind, fields)
-    _audit("public_contact.submitted", {"form": "contact", "type": kind, "delivery": "sent" if delivered else "failed"})
-    if not delivered:
-        return _json_error("We could not send your message just now. Please try again shortly.", 503)
+    submission = _store_submission(
+        submission_type="contact",
+        contact_type=kind,
+        **fields,
+    )
+    if not submission:
+        return _json_error("We could not save your message just now. Please try again shortly.", 503)
 
-    return jsonify({"message": "Thanks — your GrantThrive enquiry has been sent."}), 201
+    notification_status = _notify_admin(submission)
+    _audit(
+        "public_submission.received",
+        submission.id,
+        {"form": "contact", "type": kind, "notification": notification_status},
+    )
+    return jsonify({"message": _success_message("contact")}), 201
 
 
 @bp.post("/waitlist")
@@ -189,9 +219,19 @@ def submit_waitlist_form():
     except ValueError as exc:
         return _json_error(str(exc), 422)
 
-    delivered = _send_waitlist_email(first_name, email)
-    _audit("public_contact.submitted", {"form": "waitlist", "delivery": "sent" if delivered else "failed"})
-    if not delivered:
+    submission = _store_submission(
+        submission_type="waitlist",
+        contact_type=None,
+        name=first_name,
+        email=email,
+    )
+    if not submission:
         return _json_error("We could not save your details just now. Please try again shortly.", 503)
 
-    return jsonify({"message": "Thanks — you are on the GrantThrive launch list."}), 201
+    notification_status = _notify_admin(submission)
+    _audit(
+        "public_submission.received",
+        submission.id,
+        {"form": "waitlist", "notification": notification_status},
+    )
+    return jsonify({"message": _success_message("waitlist")}), 201
