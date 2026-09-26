@@ -22,6 +22,8 @@ concurrency:
 env:
   AWS_REGION: ap-southeast-2
   TF_IN_AUTOMATION: "true"
+  TF_VAR_contact_inbox_email: ${{ secrets.CONTACT_INBOX_EMAIL }}
+  TF_VAR_turnstile_secret_key: ${{ secrets.TURNSTILE_SECRET_KEY }}
 
 jobs:
   deploy:

@@ -611,7 +611,8 @@ resource "aws_ecs_task_definition" "prod" {
         { name = "AWS_SES_REGION", value = var.aws_ses_region },
         { name = "AWS_SES_FROM_EMAIL", value = var.aws_ses_from_email },
         { name = "FRONTEND_BASE_URL", value = var.frontend_base_url },
-        { name = "MARKETING_BASE_URL", value = var.marketing_base_url }
+        { name = "MARKETING_BASE_URL", value = var.marketing_base_url },
+        { name = "TURNSTILE_EXPECTED_HOSTNAMES", value = var.turnstile_expected_hostnames }
       ]
       secrets = [
         { name = "SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.prod.arn}:SECRET_KEY::" },
@@ -624,7 +625,9 @@ resource "aws_ecs_task_definition" "prod" {
         { name = "MAIL_USE_TLS", valueFrom = "${aws_secretsmanager_secret.prod.arn}:MAIL_USE_TLS::" },
         { name = "MAIL_USERNAME", valueFrom = "${aws_secretsmanager_secret.prod.arn}:MAIL_USERNAME::" },
         { name = "MAIL_PASSWORD", valueFrom = "${aws_secretsmanager_secret.prod.arn}:MAIL_PASSWORD::" },
-        { name = "MAIL_DEFAULT_SENDER", valueFrom = "${aws_secretsmanager_secret.prod.arn}:MAIL_DEFAULT_SENDER::" }
+        { name = "MAIL_DEFAULT_SENDER", valueFrom = "${aws_secretsmanager_secret.prod.arn}:MAIL_DEFAULT_SENDER::" },
+        { name = "CONTACT_INBOX_EMAIL", valueFrom = "${aws_secretsmanager_secret.prod.arn}:CONTACT_INBOX_EMAIL::" },
+        { name = "TURNSTILE_SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.prod.arn}:TURNSTILE_SECRET_KEY::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -670,7 +673,8 @@ resource "aws_ecs_task_definition" "uat" {
         { name = "AWS_SES_REGION", value = var.aws_ses_region },
         { name = "AWS_SES_FROM_EMAIL", value = var.aws_ses_from_email },
         { name = "FRONTEND_BASE_URL", value = var.frontend_base_url },
-        { name = "MARKETING_BASE_URL", value = var.marketing_base_url }
+        { name = "MARKETING_BASE_URL", value = var.marketing_base_url },
+        { name = "TURNSTILE_EXPECTED_HOSTNAMES", value = var.turnstile_expected_hostnames }
       ]
       secrets = [
         { name = "SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.uat.arn}:SECRET_KEY::" },
@@ -683,7 +687,9 @@ resource "aws_ecs_task_definition" "uat" {
         { name = "MAIL_USE_TLS", valueFrom = "${aws_secretsmanager_secret.uat.arn}:MAIL_USE_TLS::" },
         { name = "MAIL_USERNAME", valueFrom = "${aws_secretsmanager_secret.uat.arn}:MAIL_USERNAME::" },
         { name = "MAIL_PASSWORD", valueFrom = "${aws_secretsmanager_secret.uat.arn}:MAIL_PASSWORD::" },
-        { name = "MAIL_DEFAULT_SENDER", valueFrom = "${aws_secretsmanager_secret.uat.arn}:MAIL_DEFAULT_SENDER::" }
+        { name = "MAIL_DEFAULT_SENDER", valueFrom = "${aws_secretsmanager_secret.uat.arn}:MAIL_DEFAULT_SENDER::" },
+        { name = "CONTACT_INBOX_EMAIL", valueFrom = "${aws_secretsmanager_secret.uat.arn}:CONTACT_INBOX_EMAIL::" },
+        { name = "TURNSTILE_SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.uat.arn}:TURNSTILE_SECRET_KEY::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"

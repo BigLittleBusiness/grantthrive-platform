@@ -226,6 +226,26 @@ variable "mail_default_sender" {
   default     = "GrantThrive <noreply@grantthrive.com>"
 }
 
+variable "contact_inbox_email" {
+  type        = string
+  description = "Private destination for Turnstile-protected GrantThrive public form emails."
+  default     = ""
+  sensitive   = true
+}
+
+variable "turnstile_secret_key" {
+  type        = string
+  description = "Cloudflare Turnstile secret used only for server-side Siteverify calls."
+  default     = ""
+  sensitive   = true
+}
+
+variable "turnstile_expected_hostnames" {
+  type        = string
+  description = "Comma-separated hostnames allowed by GrantThrive public Turnstile forms."
+  default     = "grantthrive.com,www.grantthrive.com"
+}
+
 variable "aws_s3_bucket" {
   type        = string
   description = "S3 bucket used by backend for documents, reports, and file storage."

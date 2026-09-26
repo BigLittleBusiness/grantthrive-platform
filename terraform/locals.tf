@@ -49,6 +49,8 @@ locals {
     MAIL_USERNAME        = var.mail_username
     MAIL_PASSWORD        = var.mail_password
     MAIL_DEFAULT_SENDER  = var.mail_default_sender
+    CONTACT_INBOX_EMAIL  = var.contact_inbox_email
+    TURNSTILE_SECRET_KEY = var.turnstile_secret_key
   }
 
   uat_secret_payload = {
@@ -63,5 +65,7 @@ locals {
     MAIL_USERNAME        = var.mail_username
     MAIL_PASSWORD        = var.mail_password
     MAIL_DEFAULT_SENDER  = var.mail_default_sender
+    CONTACT_INBOX_EMAIL  = var.contact_inbox_email
+    TURNSTILE_SECRET_KEY = var.turnstile_secret_key
   }
 }
