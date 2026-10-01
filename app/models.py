@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from flask_login import UserMixin
 from app.common.password import hash_password, verify_password
 from app.common.encryption import EncryptedString, hmac_index
 from sqlalchemy import Numeric
@@ -9,6 +8,11 @@ import io
 import base64
 import re
 from app import db
+
+
+def _as_utc(dt):
+    """DateTime columns store naive UTC values; make them comparable with aware 'now'."""
+    return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
 
 
 # ── Council (Tenant) ──────────────────────────────────────────────────────────
@@ -130,7 +134,7 @@ class Council(db.Model):
 
 # ── User ──────────────────────────────────────────────────────────────────────
 
-class User(UserMixin, db.Model):
+class User(db.Model):
     """User model for authentication and authorization.
 
     ``council_id`` is NULL for system_admin users (GrantThrive staff) who
@@ -312,16 +316,15 @@ class Grant(db.Model):
 
     @property
     def is_open(self):
-        now = datetime.now(timezone.utc)
-        return (self.status == 'open' and
-                self.is_published and
-                self.opens_at <= now <= self.closes_at)
+        if not (self.status == 'open' and self.is_published and self.opens_at and self.closes_at):
+            return False
+        return _as_utc(self.opens_at) <= datetime.now(timezone.utc) <= _as_utc(self.closes_at)
 
     @property
     def days_remaining(self):
         if not self.is_open:
             return 0
-        delta = self.closes_at - datetime.now(timezone.utc)
+        delta = _as_utc(self.closes_at) - datetime.now(timezone.utc)
         return max(0, delta.days)
 
     def __repr__(self):
@@ -561,16 +564,16 @@ class VotingSession(db.Model):
     @property
     def is_open(self):
         now = datetime.now(timezone.utc)
-        return self.is_active and self.starts_at <= now <= self.ends_at
+        return self.is_active and _as_utc(self.starts_at) <= now <= _as_utc(self.ends_at)
 
     @property
     def status(self):
         now = datetime.now(timezone.utc)
         if not self.is_published:
             return 'draft'
-        elif now < self.starts_at:
+        elif now < _as_utc(self.starts_at):
             return 'scheduled'
-        elif now > self.ends_at:
+        elif now > _as_utc(self.ends_at):
             return 'closed'
         elif self.is_active:
             return 'open'

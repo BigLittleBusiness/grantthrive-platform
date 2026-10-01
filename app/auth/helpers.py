@@ -1,17 +1,15 @@
 """
 GrantThrive — Auth Helpers
 ===========================
-Shared utilities, decorators, and serialisers used by all auth route modules.
+Shared utilities and serialisers used by all auth route modules.
 Import from here rather than from routes.py to avoid circular dependencies.
 """
 import jwt
 import logging
 from datetime import datetime, timedelta, timezone
-from functools import wraps
-from flask import request, jsonify, current_app
+from flask import request, current_app
 
-from app.common.password import hash_password, verify_password  # noqa: F401 — re-exported
-from app.common.encryption import hmac_index                    # noqa: F401 — re-exported
+from app.common.encryption import hmac_index
 from app import db
 from app.models import User, Council
 
@@ -127,47 +125,6 @@ def _user_to_dict(user: User) -> dict:
         "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
         "last_login": user.last_login.isoformat() if getattr(user, "last_login", None) else None,
     }
-
-
-# ── Decorators ────────────────────────────────────────────────────────────────
-
-def token_required(f):
-    """Decorator: validates Bearer JWT and injects current_user as first arg."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Authentication required."}), 401
-        token = auth_header.split(" ", 1)[1]
-        try:
-            payload = _decode_token(token)
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token has expired. Please log in again."}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "Invalid token."}), 401
-        try:
-            user = db.session.get(User, int(payload["sub"]))
-        except Exception as exc:
-            db.session.rollback()
-            logger.exception("Failed loading user from token: %s", exc)
-            return jsonify({"error": "Failed to validate user."}), 500
-        if not user or not user.is_active:
-            return jsonify({"error": "User account not found or inactive."}), 401
-        return f(user, *args, **kwargs)
-    return decorated
-
-
-def role_required(*roles):
-    """Decorator: validates Bearer JWT and enforces role membership."""
-    def decorator(f):
-        @wraps(f)
-        @token_required
-        def decorated(current_user, *args, **kwargs):
-            if current_user.role not in roles:
-                return jsonify({"error": "Insufficient permissions."}), 403
-            return f(current_user, *args, **kwargs)
-        return decorated
-    return decorator
 
 
 # ── Audit log ─────────────────────────────────────────────────────────────────

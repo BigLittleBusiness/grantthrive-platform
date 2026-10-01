@@ -5,8 +5,8 @@ Exposes:
     GET  /api/abn/validate?abn=<abn>
     POST /api/abn/validate  { "abn": "<abn>" }
 
-Both endpoints are rate-limited and require the user to be authenticated
-(login_required) to prevent unauthenticated bulk lookups against the ABR API.
+Public (used during registration, before an account exists) and rate-limited
+per IP to prevent bulk lookups against the ABR API.
 
 Response JSON:
 {
@@ -25,8 +25,8 @@ Response JSON:
 
 import logging
 from flask import Blueprint, request, jsonify
-from flask_login import login_required
 
+from app import limiter
 from app.common.abr_service import lookup_abn
 
 logger = logging.getLogger(__name__)
@@ -43,12 +43,12 @@ def _get_raw_abn() -> str | None:
 
 
 @abn_bp.route("/abn/validate", methods=["GET", "POST"])
-@login_required
+@limiter.limit("30 per hour")
 def validate_abn():
     """
     Validate an ABN against the Australian Business Register.
 
-    Requires authentication. Accepts both GET and POST requests.
+    Accepts both GET and POST requests.
     """
     raw_abn = _get_raw_abn()
 

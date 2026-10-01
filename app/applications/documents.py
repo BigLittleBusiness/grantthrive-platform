@@ -183,7 +183,7 @@ def upload_document(current_user, app_id):
 # ---------------------------------------------------------------------------
 
 @bp.route("/<int:app_id>/documents", methods=["GET"])
-@permission_required("applications:read_own")
+@permission_required("applications:read_own", "applications:read")
 def list_documents(current_user, app_id):
     """Return a list of document metadata records for an application."""
     application = db.session.get(Application, app_id)
@@ -202,7 +202,7 @@ def list_documents(current_user, app_id):
 # ---------------------------------------------------------------------------
 
 @bp.route("/<int:app_id>/documents/<int:doc_id>", methods=["GET"])
-@permission_required("applications:read_own")
+@permission_required("applications:read_own", "applications:read")
 def get_document_url(current_user, app_id, doc_id):
     """Return a time-limited pre-signed S3 URL to download a document.
 
@@ -248,7 +248,7 @@ def get_document_url(current_user, app_id, doc_id):
 # ---------------------------------------------------------------------------
 
 @bp.route("/<int:app_id>/documents/<int:doc_id>", methods=["DELETE"])
-@permission_required("applications:read_own")
+@permission_required("applications:read_own", "applications:read")
 def delete_document(current_user, app_id, doc_id):
     """Delete a document from S3 and remove its database record."""
     application = db.session.get(Application, app_id)

@@ -7,25 +7,28 @@ community engagement, and cost savings for the previous calendar month.
 """
 
 import os
-import io
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, KeepTogether, PageBreak
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    HRFlowable,
+    KeepTogether,
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, cm
+from reportlab.lib.units import inch
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import Image as RLImage
-from sqlalchemy import func, case, and_, extract
+from sqlalchemy import func
 
 from app import db
-from app.models import Council, Grant, Application, User, Review, CommunityVote, VotingSession
+from app.models import Grant, Application, Review, CommunityVote, VotingSession
 
 logger = logging.getLogger(__name__)
 

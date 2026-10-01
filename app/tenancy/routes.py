@@ -26,8 +26,7 @@ from flask import Blueprint, request, jsonify
 
 from app import db
 from app.models import Council, User
-from app.auth.routes import token_required, role_required
-from app.tenancy.middleware import get_current_council
+from app.common.decorators import token_required, role_required
 from app.common.password import hash_password
 logger = logging.getLogger(__name__)
 
@@ -526,7 +525,7 @@ def start_trial():
         }
     """
     from datetime import timedelta
-    from app.auth.routes import _generate_token, _user_to_dict
+    from app.auth.helpers import _generate_token, _user_to_dict
     from app.tenancy.email import send_trial_welcome_email
     from app.common.plans import plan_entitlements
     data         = request.get_json(silent=True) or {}
@@ -1074,7 +1073,6 @@ def reject_staff_member(current_user, council_id, user_id):
 # ── SMS Settings ──────────────────────────────────────────────────────────────
 
 @councils_bp.route('/councils/<int:council_id>/sms-settings', methods=['GET'])
-@token_required
 @role_required('council_admin', 'system_admin')
 def get_sms_settings(current_user, council_id):
     """Return SMS settings and entitlement status for a council."""
@@ -1099,7 +1097,6 @@ def get_sms_settings(current_user, council_id):
 
 
 @councils_bp.route('/councils/<int:council_id>/sms-settings', methods=['PATCH'])
-@token_required
 @role_required('council_admin', 'system_admin')
 def update_sms_settings(current_user, council_id):
     """Update SMS notification preferences for a council."""
@@ -1130,7 +1127,6 @@ def update_sms_settings(current_user, council_id):
 
 
 @councils_bp.route('/councils/<int:council_id>/sms-settings/test', methods=['POST'])
-@token_required
 @role_required('council_admin', 'system_admin')
 def send_test_sms(current_user, council_id):
     """Send a test SMS to the council admin's registered phone number."""
@@ -1162,7 +1158,6 @@ def send_test_sms(current_user, council_id):
 
 
 @councils_bp.route('/councils/<int:council_id>/sms-usage', methods=['GET'])
-@token_required
 @role_required('council_admin', 'system_admin')
 def get_sms_usage(current_user, council_id):
     """Return SMS usage statistics for the council (last 30 days)."""

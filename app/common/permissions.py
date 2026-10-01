@@ -241,14 +241,14 @@ def get_user_permissions(user: User) -> set[str]:
 
 # ── Decorators ────────────────────────────────────────────────────────────────
 
-def permission_required(permission: str):
+def permission_required(*permissions: str):
     """
-    Decorator: require a valid JWT and a specific permission.
+    Decorator: require a valid JWT and at least one of the given permissions.
 
     Injects the authenticated User as the first argument to the view.
 
     Returns 401 if unauthenticated.
-    Returns 403 if the user lacks the required permission.
+    Returns 403 if the user holds none of the permissions.
 
     Example:
         @bp.route('/grants', methods=['POST'])
@@ -263,12 +263,12 @@ def permission_required(permission: str):
             if error:
                 return jsonify({"error": error}), 401
 
-            if not has_permission(user, permission):
+            if not any(has_permission(user, p) for p in permissions):
                 logger.warning(
                     "Permission denied: user_id=%d role=%s required=%s",
-                    user.id, user.role, permission,
+                    user.id, user.role, permissions,
                 )
-                return jsonify({"error": "Insufficient permissions.", "required": permission}), 403
+                return jsonify({"error": "Insufficient permissions.", "required": list(permissions)}), 403
 
             return f(user, *args, **kwargs)
         return decorated

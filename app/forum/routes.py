@@ -24,8 +24,8 @@ from flask import request, jsonify
 
 from app import db
 from app.forum import forum_bp
-from app.models import Forum, ForumPost, ForumMember, User
-from app.auth.routes import token_required
+from app.models import Forum, ForumPost, ForumMember
+from app.common.decorators import token_required
 
 logger = logging.getLogger(__name__)
 

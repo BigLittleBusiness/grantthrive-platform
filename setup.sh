@@ -11,7 +11,7 @@
 #   2. Creates and activates a Python virtual environment
 #   3. Installs all required Python packages
 #   4. Creates the .env file with a securely generated SECRET_KEY
-#   5. Creates all database tables
+#   5. Applies database migrations (requires PostgreSQL — see .env.example)
 #   6. Confirms the server starts correctly and exits
 #
 # After running this script, start the server at any time with:
@@ -129,25 +129,11 @@ export FLASK_ENV="${FLASK_ENV:-development}"
 hr
 
 # ── Step 5: Database Setup ────────────────────────────────────────────────────
-info "Creating database tables..."
+info "Applying database migrations (PostgreSQL database from DATABASE_URL)..."
 
-python3 - <<'PYEOF'
-import sys
-try:
-    from app import create_app, db
-    from sqlalchemy import inspect
+flask db upgrade
 
-    app = create_app()
-    with app.app_context():
-        db.create_all()
-        tables = inspect(db.engine).get_table_names()
-        print(f"  Created {len(tables)} tables: {', '.join(sorted(tables))}")
-except Exception as e:
-    print(f"  ERROR: {e}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
-
-ok "Database tables created"
+ok "Database schema is up to date"
 
 hr
 

@@ -34,8 +34,8 @@ from flask import request, jsonify
 
 from app import db
 from app.grants import bp
-from app.models import Grant, Application, ApplicationAssignment, Council, User
-from app.common.permissions import permission_required, has_permission
+from app.models import Grant, Application, Council, User
+from app.common.permissions import permission_required
 from app.common.plans import check_grant_limit, can_use_feature
 
 logger = logging.getLogger(__name__)

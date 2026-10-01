@@ -16,6 +16,7 @@ Permission matrix:
 
 Endpoints:
   GET    /api/applications                — List own applications (community) or all (staff+)
+                                            ?status=a,b  ?grant_id=  ?assigned_to_me=true
   POST   /api/applications                — Submit a new application
   GET    /api/applications/<id>           — Get application detail
   PATCH  /api/applications/<id>           — Update a draft application (own only)
@@ -90,13 +91,14 @@ def _can_access_application(user, application: Application) -> bool:
 
 @bp.route("", methods=["GET"])
 @bp.route("/", methods=["GET"])
-@permission_required("applications:read_own")
+@permission_required("applications:read_own", "applications:read")
 def list_applications(current_user):
     """List applications scoped by role."""
     page     = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 20, type=int), 100)
-    status   = request.args.get("status")
+    statuses = [s for s in request.args.get("status", "").split(",") if s]
     grant_id = request.args.get("grant_id", type=int)
+    assigned_to_me = request.args.get("assigned_to_me", "").lower() == "true"
 
     query = Application.query
 
@@ -110,10 +112,14 @@ def list_applications(current_user):
     else:
         query = query.filter_by(applicant_id=current_user.id)
 
-    if status:
-        query = query.filter_by(status=status)
+    if statuses:
+        query = query.filter(Application.status.in_(statuses))
     if grant_id:
         query = query.filter_by(grant_id=grant_id)
+    if assigned_to_me:
+        query = query.join(
+            ApplicationAssignment, ApplicationAssignment.application_id == Application.id
+        ).filter(ApplicationAssignment.staff_id == current_user.id)
 
     query = query.order_by(Application.created_at.desc())
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -128,7 +134,7 @@ def list_applications(current_user):
 
 
 @bp.route("/<int:app_id>", methods=["GET"])
-@permission_required("applications:read_own")
+@permission_required("applications:read_own", "applications:read")
 def get_application(current_user, app_id):
     """Get a single application by ID."""
     application = db.session.get(Application, app_id)

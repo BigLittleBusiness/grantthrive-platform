@@ -21,7 +21,6 @@ import os
 import re
 import logging
 import requests
-from functools import lru_cache
 from typing import TypedDict
 
 logger = logging.getLogger(__name__)

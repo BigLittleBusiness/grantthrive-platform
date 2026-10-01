@@ -67,7 +67,7 @@ This script will:
 1.  Create a Python virtual environment (`venv`).
 2.  Install all required Python dependencies.
 3.  Create a `.env` file from the example and generate a secure `SECRET_KEY`.
-4.  Initialize the local SQLite database (`instance/grantthrive_dev.db`).
+4.  Apply the database migrations to the PostgreSQL database in `DATABASE_URL` (see section 4).
 
 Once the setup is complete, start the backend server:
 
@@ -94,9 +94,7 @@ cd ../grantthrive-frontend
 pnpm install
 ```
 
-This command installs all packages for the frontend application. The project is already configured to proxy API requests to the backend running on port 5000.
-
-Now, start the frontend development server:
+Copy `.env.example` to `.env`; its `VITE_API_URL=http://localhost:5000/api` points the frontend at this backend. Then start the frontend development server:
 
 ```bash
 # Start the Vite development server
@@ -105,18 +103,26 @@ pnpm dev
 # The frontend is now running at http://localhost:5173
 ```
 
-You can now access the full GrantThrive application in your browser at `http://localhost:5173`. Any API calls the frontend makes will be automatically routed to your local backend server.
+You can now access the full GrantThrive application in your browser at `http://localhost:5173`. The frontend calls the backend directly at `VITE_API_URL`; the backend's default `CORS_ORIGINS` already allow `http://localhost:5173`.
+
+Every backend endpoint lives under `/api`. In production a single domain can serve both: route `/api/*` to the backend and everything else to the built frontend (see `scripts/aws_setup.sh` for the Nginx configuration), and build the frontend with `VITE_API_URL=/api`.
 
 ---
 
 ## 4. Database Configuration
 
-### Local Database (SQLite)
+### Local Database (PostgreSQL)
 
-For local development, the project is pre-configured to use **SQLite**, a simple file-based database. The `setup.sh` script automatically creates the database file at `grantthrive-platform/instance/grantthrive_dev.db`.
+GrantThrive requires **PostgreSQL** in every environment (SQLite is not supported). Create a local database and point `DATABASE_URL` in `.env` at it before running `./setup.sh`:
 
-*   **No further setup is required for local development.**
-*   To reset the database, simply delete the `instance/` directory and re-run `./setup.sh`.
+```bash
+createdb grantthrive_dev
+# .env
+DATABASE_URL="postgresql://<user>:<password>@localhost:5432/grantthrive_dev"
+```
+
+*   `./setup.sh` (or `flask db upgrade`) applies all migrations.
+*   To reset the database, drop and recreate it, then run `flask db upgrade` again.
 
 ### Production Database (AWS RDS PostgreSQL)
 
@@ -173,8 +179,6 @@ export FLASK_ENV=production
 # Run the database migrations to create all tables
 flask db upgrade
 
-# You can optionally seed the database with initial data
-# python3 scripts/seed_database.py
 ```
 
 Your backend application is now configured to use the production AWS RDS database. When you restart the Flask application, it will connect to PostgreSQL instead of the local SQLite file.

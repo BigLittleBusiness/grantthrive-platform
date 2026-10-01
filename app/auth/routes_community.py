@@ -17,13 +17,7 @@ from flask import request, jsonify, g
 from app import db, limiter
 from app.models import User
 from app.auth import bp
-from app.auth.helpers import (
-    _utcnow,
-    _find_user_by_email,
-    _generate_token,
-    _user_to_dict,
-    _write_audit_log,
-)
+from app.auth.helpers import _find_user_by_email, _user_to_dict, _write_audit_log
 
 logger = logging.getLogger(__name__)
 

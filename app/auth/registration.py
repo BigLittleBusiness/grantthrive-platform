@@ -49,7 +49,6 @@ Note: passwords are NEVER stored in the session token.
 
 import jwt
 import logging
-import secrets
 from datetime import datetime, timedelta, timezone
 
 from flask import request, jsonify, current_app
@@ -492,7 +491,7 @@ def register_complete():
         user.id, email, role, council_id, is_active,
     )
 
-    from app.auth.routes import _user_to_dict, _write_audit_log
+    from app.auth.helpers import _user_to_dict, _write_audit_log
     _write_audit_log(user.id, "register_complete", f"role={role}", council_id=council_id)
 
     return jsonify({

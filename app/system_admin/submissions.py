@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from flask import jsonify, request
 
 from app import db
-from app.auth.routes import role_required
+from app.common.decorators import role_required
 from app.models import AuditLog, PublicSubmission
 from app.system_admin import bp
 

@@ -15,11 +15,12 @@ Endpoints used by ALL roles:
 import logging
 from datetime import timedelta
 
-from flask import request, jsonify, current_app, g
+from flask import request, jsonify, current_app
 
 from app import db, limiter
 from app.models import User, Council
 from app.auth import bp
+from app.common.decorators import token_required
 from app.auth.helpers import (
     _utcnow,
     _normalize_dt,
@@ -28,12 +29,9 @@ from app.auth.helpers import (
     _decode_token,
     _user_to_dict,
     _write_audit_log,
-    token_required,
-    hash_password,
-    verify_password,
-    JWT_ALGORITHM,
     JWT_ADMIN_REFRESH_MINS,
 )
+from app.common.password import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
 

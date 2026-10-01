@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.pricing import pricing_bp
 from app.models import PricingConfig, db
 from app.common.decorators import role_required
-from app.common.plans import PLAN_LIMITS, get_plan_limits
+from app.common.plans import PLAN_LIMITS
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ def _seed_defaults():
 
 # ── Public endpoint ───────────────────────────────────────────────────────────
 
-@pricing_bp.route('/api/pricing/plans', methods=['GET'])
+@pricing_bp.route('/plans', methods=['GET'])
 def get_public_pricing():
     """
     Public — no auth required.
@@ -106,7 +106,7 @@ def get_public_pricing():
 
 # ── System-admin endpoints ────────────────────────────────────────────────────
 
-@pricing_bp.route('/api/pricing/admin/plans', methods=['GET'])
+@pricing_bp.route('/admin/plans', methods=['GET'])
 @role_required('system_admin')
 def get_admin_pricing(current_user):
     """
@@ -122,7 +122,7 @@ def get_admin_pricing(current_user):
     }), 200
 
 
-@pricing_bp.route('/api/pricing/admin/plans/<plan_key>', methods=['PUT'])
+@pricing_bp.route('/admin/plans/<plan_key>', methods=['PUT'])
 @role_required('system_admin')
 def update_plan_pricing(current_user, plan_key):
     """
@@ -213,7 +213,7 @@ def update_plan_pricing(current_user, plan_key):
     }), 200
 
 
-@pricing_bp.route('/api/pricing/admin/plans/reset', methods=['POST'])
+@pricing_bp.route('/admin/plans/reset', methods=['POST'])
 @role_required('system_admin')
 def reset_pricing_to_defaults(current_user):
     """
@@ -249,7 +249,7 @@ def reset_pricing_to_defaults(current_user):
     return jsonify({'message': 'All plan prices reset to defaults'}), 200
 
 
-@pricing_bp.route('/api/pricing/admin/history', methods=['GET'])
+@pricing_bp.route('/admin/history', methods=['GET'])
 @role_required('system_admin')
 def get_pricing_history(current_user):
     """

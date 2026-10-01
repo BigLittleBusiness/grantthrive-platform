@@ -41,12 +41,7 @@ import jwt
 from flask import request, jsonify, current_app
 
 from app import db, limiter
-from app.auth.routes import (
-    _generate_token,
-    _decode_token,
-    _write_audit_log,
-    token_required,
-)
+from app.auth.helpers import _decode_token, _write_audit_log
 from app.common.encryption import hmac_index
 from app.common.password import hash_password, verify_password
 from app.models import User

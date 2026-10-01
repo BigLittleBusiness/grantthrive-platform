@@ -9,14 +9,13 @@ POST /api/notifications/<id>/read — mark one notification as read
 POST /api/notifications/read-all  — mark all as read
 """
 
-from datetime import datetime, timezone, timedelta
-from flask import jsonify, request
+from flask import jsonify
 from app.notifications import bp
-from app.common.decorators import login_required_api
+from app.common.decorators import token_required
 
 
 @bp.route('/', methods=['GET'])
-@login_required_api
+@token_required
 def list_notifications(current_user):
     """Return the 50 most recent notifications for the current user."""
     from app.models import Notification
@@ -35,7 +34,7 @@ def list_notifications(current_user):
 
 
 @bp.route('/unread-count', methods=['GET'])
-@login_required_api
+@token_required
 def unread_count(current_user):
     """Return just the unread badge count (lightweight poll endpoint)."""
     from app.models import Notification
@@ -49,7 +48,7 @@ def unread_count(current_user):
 
 
 @bp.route('/<int:notification_id>/read', methods=['POST'])
-@login_required_api
+@token_required
 def mark_read(current_user, notification_id):
     """Mark a single notification as read."""
     from app import db
@@ -68,7 +67,7 @@ def mark_read(current_user, notification_id):
 
 
 @bp.route('/read-all', methods=['POST'])
-@login_required_api
+@token_required
 def mark_all_read(current_user):
     """Mark all unread notifications as read for the current user."""
     from app import db

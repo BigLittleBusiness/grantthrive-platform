@@ -15,7 +15,6 @@ Permission:
   council_admin (own council only) or system_admin
 """
 
-import io
 import logging
 from datetime import datetime, timezone
 
@@ -23,7 +22,7 @@ from flask import request, jsonify
 
 from app import db
 from app.tenancy.routes import councils_bp
-from app.auth.routes import token_required
+from app.common.decorators import token_required
 from app.common.s3_service import (
     s3_service,
     ALLOWED_LOGO_EXTENSIONS,

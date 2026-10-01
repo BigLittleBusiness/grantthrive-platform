@@ -1,3 +1,3 @@
-from flask import Blueprint
-bp = Blueprint('reports', __name__)
-from app.reports import routes
+"""
+GrantThrive — Monthly council performance reports (PDF generation + email delivery).
+"""

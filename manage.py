@@ -9,9 +9,8 @@ Available commands:
                         for all councils with grants.
 """
 
-import os
 import click
-from app import create_app, db
+from app import create_app
 
 app = create_app()
 

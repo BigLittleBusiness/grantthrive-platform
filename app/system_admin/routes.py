@@ -25,12 +25,12 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from flask import request, jsonify, current_app
-from app.common.password import hash_password  # noqa: F401 — used via user.set_password()
+from flask import request, jsonify
 
 from app import db, limiter
-from app.models import User, AuditLog
-from app.auth.routes import role_required, _write_audit_log
+from app.models import User
+from app.auth.helpers import _write_audit_log
+from app.common.decorators import role_required
 from app.system_admin import bp
 
 logger = logging.getLogger(__name__)

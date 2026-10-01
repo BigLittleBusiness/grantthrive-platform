@@ -19,21 +19,11 @@ psycopg2-binary==2.9.9
 # Authentication / Security
 # ─────────────────────────────────────────
 
-Flask-Login==0.6.3
-bcrypt==4.0.1
 PyJWT==2.8.0
-email-validator==2.0.0
-# Argon2id password hashing (replaces Werkzeug PBKDF2)
+# Argon2id password hashing
 argon2-cffi==23.1.0
 # AES-256-GCM field-level encryption for PII
 cryptography==42.0.8
-
-# ─────────────────────────────────────────
-# Forms / Validation
-# ─────────────────────────────────────────
-
-Flask-WTF==1.1.1
-WTForms==3.0.1
 
 # ─────────────────────────────────────────
 # API / Middleware
@@ -41,41 +31,34 @@ WTForms==3.0.1
 
 Flask-CORS==4.0.0
 Flask-Limiter==3.9.2
-Flask-Caching==2.3.1
+Flask-Mail==0.10.0
 
 # ─────────────────────────────────────────
 # Utilities
 # ─────────────────────────────────────────
 
 python-dotenv==1.0.0
-python-dateutil==2.8.2
 requests==2.32.5
 geopy==2.4.1
+APScheduler==3.10.4
 
 # ─────────────────────────────────────────
-# Data / Reports
+# Reports / QR codes
 # ─────────────────────────────────────────
 
-pandas==2.1.1
 reportlab==4.0.4
+# Image backend for qrcode
 Pillow==10.0.1
 qrcode==7.4.2
 
 # ─────────────────────────────────────────
-# Caching / Rate Limiting (Redis)
-# Required for Flask-Limiter and Flask-Caching Redis backends.
-# In production, set REDIS_URL to the ElastiCache endpoint, e.g.:
+# Rate Limiting (Redis)
+# Flask-Limiter storage backend. In production, set REDIS_URL to the
+# ElastiCache endpoint, e.g.:
 #   REDIS_URL=rediss://<cluster>.cache.amazonaws.com:6380
 # ─────────────────────────────────────────
 
 redis==5.2.1
-
-# ─────────────────────────────────────────
-# Optional Enhancements
-# ─────────────────────────────────────────
-
-python-slugify==8.0.1
-APScheduler==3.10.4
 
 # ─────────────────────────────────────────
 # AWS (SES email + S3 file storage)

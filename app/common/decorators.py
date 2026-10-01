@@ -79,11 +79,23 @@ def _get_current_user_from_token():
         user = db.session.get(User, int(user_id))
     except (TypeError, ValueError):
         return None, (jsonify({"error": "Invalid token subject."}), 401)
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed loading user from token: %s", exc)
+        return None, (jsonify({"error": "Failed to validate user."}), 500)
 
     if not user or not getattr(user, "is_active", False):
         return None, (jsonify({"error": "User account not found or inactive."}), 401)
 
     return user, None
+
+
+def get_optional_user():
+    """Return the authenticated `User` for public endpoints, or None if anonymous/invalid."""
+    if not _get_bearer_token():
+        return None
+    user, _error = _get_current_user_from_token()
+    return user
 
 
 # ── Public decorators ─────────────────────────────────────────────────────────
@@ -93,23 +105,6 @@ def token_required(f):
     Require a valid JWT in the Authorization header.
 
     Injects authenticated `User` as the first positional argument.
-    """
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        current_user, error = _get_current_user_from_token()
-        if error:
-            return error
-        return f(current_user, *args, **kwargs)
-
-    return decorated
-
-
-def login_required_api(f):
-    """
-    Backward-compatible API auth decorator.
-
-    Older modules may still import `login_required_api`.
-    Functionally identical to `token_required`.
     """
     @wraps(f)
     def decorated(*args, **kwargs):

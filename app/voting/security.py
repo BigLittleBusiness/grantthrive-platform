@@ -5,13 +5,12 @@ Comprehensive security measures to ensure voting integrity
 
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import request, current_app
-from sqlalchemy import func, and_, or_
+from sqlalchemy import and_
 from app.models import CommunityVote, User, db
-import re
 from collections import defaultdict
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 class VotingSecurityManager:
     """Manages all voting security and fraud prevention measures"""

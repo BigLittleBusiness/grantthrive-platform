@@ -2,8 +2,7 @@
 GrantThrive — Auth Routes (Dispatcher)
 ========================================
 This file is the single entry point imported by app/auth/__init__.py.
-It re-exports all helpers and decorators for backward compatibility, then
-imports the role-scoped route modules so Flask registers their endpoints.
+It imports the role-scoped route modules so Flask registers their endpoints.
 
 Route modules:
   routes_shared.py    — login, logout, verify-token, demo-login, me, change-password,
@@ -12,35 +11,14 @@ Route modules:
   routes_council.py   — POST /register/council    (council_admin self-registration)
   registration.py     — stepwise multi-step registration flows (all roles)
 
-Legacy alias:
+Generic registration:
   POST /register      — dispatches to the correct role-scoped handler based on user_type.
-                        Kept for backward compatibility with existing frontend calls.
 """
 import logging
-from flask import request, jsonify
+from flask import request
 
 from app import limiter
 from app.auth import bp
-
-# ── Re-export shared helpers so existing imports of the form
-#    `from app.auth.routes import token_required` continue to work.
-from app.auth.helpers import (           # noqa: F401
-    _utcnow,
-    _normalize_dt,
-    _find_user_by_email,
-    _generate_token,
-    _decode_token,
-    _user_to_dict,
-    _write_audit_log,
-    token_required,
-    role_required,
-    hash_password,
-    verify_password,
-    JWT_ALGORITHM,
-    JWT_EXPIRY_DAYS,
-    JWT_ADMIN_EXPIRY_HRS,
-    JWT_ADMIN_REFRESH_MINS,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +27,17 @@ from app.auth import routes_shared    # noqa: F401, E402
 from app.auth import routes_community # noqa: F401, E402
 from app.auth import routes_council   # noqa: F401, E402
 
-# Role sets used by the legacy /register dispatcher
-_OPEN_ROLES    = {"community_member", "professional_consultant"}
+# Role set used by the /register dispatcher
 _COUNCIL_ROLES = {"council", "council_admin", "council_staff"}
 
 
-# ── Legacy /register dispatcher ───────────────────────────────────────────────
+# ── /register dispatcher ────────────────────────────────────────────────────────
 
 @bp.route("/register", methods=["POST"])
 @limiter.limit("5 per minute")
 def register():
     """
-    Backward-compatible registration endpoint.
+    Generic registration endpoint.
     Inspects user_type and delegates to the appropriate role-scoped handler.
 
     user_type values:

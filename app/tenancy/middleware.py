@@ -42,7 +42,7 @@ proxy config::
 import logging
 from functools import wraps
 
-from flask import g, request, jsonify, current_app
+from flask import g, request, jsonify
 
 logger = logging.getLogger(__name__)
 
