@@ -114,7 +114,7 @@ def has_live_subscription(council: Council) -> bool:
 def create_checkout_session(council: Council, email: str, plan: str, cycle: str) -> str:
     """Create a subscription Checkout Session and return its URL."""
     price = get_prices()[(plan, cycle)]
-    app_url = current_app.config["APP_URL"]
+    app_url = current_app.config["FRONTEND_BASE_URL"]
     metadata = {"council_id": str(council.id), "plan": plan, "billing_cycle": cycle}
     session = _client().checkout.Session.create(
         mode="subscription",
@@ -139,7 +139,7 @@ def create_portal_session(council: Council) -> str:
     """Create a Customer Portal session (payment method, invoices, plan change, cancel)."""
     params = {
         "customer": council.stripe_customer_id,
-        "return_url": f"{current_app.config['APP_URL']}/portal/council/account-billing",
+        "return_url": f"{current_app.config['FRONTEND_BASE_URL']}/portal/council/account-billing",
     }
     configuration = current_app.config.get("STRIPE_PORTAL_CONFIGURATION_ID")
     if configuration:

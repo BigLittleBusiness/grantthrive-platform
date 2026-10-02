@@ -120,13 +120,9 @@ def verify_token():
 
 @bp.route("/demo-login", methods=["POST"])
 def demo_login():
-    if (
-        current_app.config.get("ENV") == "production"
-        or (
-            not current_app.config.get("TESTING")
-            and current_app.config.get("FLASK_ENV") == "production"
-        )
-    ):
+    # Demo accounts (including a system_admin) must never be reachable outside
+    # local development: only FLASK_ENV=development (or tests) enables them.
+    if not (current_app.config.get("TESTING") or current_app.config.get("FLASK_ENV") == "development"):
         return jsonify({"error": "Demo login is not available in production."}), 403
     data = request.get_json(silent=True) or {}
     demo_type = data.get("demo_type", "council_admin")

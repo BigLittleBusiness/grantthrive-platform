@@ -85,14 +85,9 @@ def _send_report_email(council, report_path, year, month):
         
     subject = f"GrantThrive — Monthly Performance Report: {council.name} — {period_label}"
     
-    # Use SES to send the email (we'll implement send_monthly_report_pdf in email_service.py)
+    # Sent via AWS SES with the PDF attached (email_service.send_monthly_report_pdf).
     success_count = 0
     for admin in admins:
-        # Note: In a real production system with SES, we'd need a way to attach files.
-        # Since email_service.py doesn't currently support attachments, we'll either need
-        # to add attachment support to it, or fall back to Flask-Mail for this specific task,
-        # or upload the PDF to S3 and send a link.
-        # Let's add attachment support to email_service.py
         try:
             res = email_service.send_monthly_report_pdf(
                 to_email=admin.email,

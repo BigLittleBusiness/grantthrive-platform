@@ -113,7 +113,7 @@ Make the following changes:
 
 1.  **`FLASK_ENV`**: Set to `production`.
 2.  **`DATABASE_URL`**: Paste the full connection string for your AWS RDS PostgreSQL database.
-3.  **`SERVER_NAME`**: Set to your backend's public domain (e.g., `api.yourdomain.com`).
+3.  **Everything else**: Fill in the remaining production values listed in `.env.example`: `FRONTEND_BASE_URL`, the encryption keys (`FIELD_ENCRYPTION_KEY`, `FIELD_HMAC_KEY`, `SYSTEM_CONFIG_ENCRYPTION_KEY`), AWS SES/S3, Stripe and Turnstile.
 
 ### Step 5: Initialize the Production Database
 

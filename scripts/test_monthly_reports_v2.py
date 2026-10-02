@@ -40,7 +40,6 @@ logger = logging.getLogger("test_monthly_reports_v2")
 # ── Minimal Flask app with in-memory SQLite ───────────────────────────────────
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_mail import Mail
 from sqlalchemy import Numeric
 from datetime import datetime, timezone
 
@@ -49,19 +48,16 @@ app.config.update(
     TESTING=True,
     SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
-    MAIL_SUPPRESS_SEND=True,
     SECRET_KEY="test-secret",
     AWS_SES_ENABLED="false",
 )
 
 db  = SQLAlchemy(app)
-mail = Mail(app)
 
 # ── Stub the app package so real imports resolve to our test db ───────────────
 import types
 app_mod = types.ModuleType("app")
 app_mod.db   = db
-app_mod.mail = mail
 sys.modules["app"] = app_mod
 
 # ── Stub common.encryption so models can be imported ─────────────────────────

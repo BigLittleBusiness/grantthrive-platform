@@ -5,11 +5,11 @@ GrantThrive operates a single Twilio account.  Councils do NOT manage their
 own Twilio credentials — SMS is delivered on their behalf through GrantThrive's
 account, and usage is tracked per council for billing purposes.
 
-Environment variables required (set in .env / deployment secrets):
-  TWILIO_ACCOUNT_SID   — Twilio Account SID (starts with AC...)
-  TWILIO_AUTH_TOKEN    — Twilio Auth Token
-  TWILIO_FROM_NUMBER   — Twilio phone number or Messaging Service SID
-                         e.g. "+61400000000" or "MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+Credentials are managed by a system admin on the Twilio configuration page
+(Admin Dashboard → SMS) and stored in SystemConfig — the auth token encrypted
+with SYSTEM_CONFIG_ENCRYPTION_KEY. Sending is skipped (logged instead) until
+the integration is enabled there with an Account SID, Auth Token and either a
+Messaging Service SID or a From number.
 
 All public functions return a (success: bool, message: str) tuple so callers
 can log failures without crashing the notification pipeline.
@@ -18,45 +18,29 @@ can log failures without crashing the notification pipeline.
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-# ── Lazy Twilio client ────────────────────────────────────────────────────────
-
-_client = None
-
+# ── Twilio client (credentials from SystemConfig) ─────────────────────────────
 
 def _get_client():
-    """Return a cached Twilio REST client, or None if credentials are missing."""
-    global _client
-    if _client is not None:
-        return _client
+    """Return (Twilio client, sender kwargs), or (None, None) when SMS is not configured."""
+    from app.models import SystemConfig
 
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
-    auth_token  = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    if SystemConfig.get("twilio_enabled") != "true":
+        return None, None
+    account_sid = SystemConfig.get("twilio_account_sid")
+    auth_token = SystemConfig.get("twilio_auth_token")
+    messaging_sid = SystemConfig.get("twilio_messaging_service_sid")
+    from_number = SystemConfig.get("twilio_from_number")
+    if not (account_sid and auth_token and (messaging_sid or from_number)):
+        logger.warning("Twilio is enabled but its credentials are incomplete; SMS will be logged, not sent.")
+        return None, None
 
-    if not account_sid or not auth_token:
-        logger.warning(
-            "Twilio credentials not configured (TWILIO_ACCOUNT_SID / "
-            "TWILIO_AUTH_TOKEN).  SMS will be logged but not sent."
-        )
-        return None
-
-    try:
-        from twilio.rest import Client  # type: ignore
-        _client = Client(account_sid, auth_token)
-        return _client
-    except ImportError:
-        logger.error(
-            "twilio package is not installed.  Run: pip install twilio==9.4.3"
-        )
-        return None
-
-
-def _from_number() -> str:
-    return os.environ.get("TWILIO_FROM_NUMBER", "")
+    from twilio.rest import Client  # type: ignore
+    sender = {"messaging_service_sid": messaging_sid} if messaging_sid else {"from_": from_number}
+    return Client(account_sid, auth_token), sender
 
 
 # ── Core send function ────────────────────────────────────────────────────────
@@ -77,11 +61,10 @@ def send_sms(to_phone: str, body: str, council_id: int | None = None) -> tuple[b
     if not to_phone or not to_phone.startswith("+"):
         return False, f"Invalid phone number format: {to_phone!r} (must be E.164)"
 
-    client = _get_client()
-    from_num = _from_number()
+    client, sender = _get_client()
 
-    # ── Development / test mode: log instead of sending ──────────────────────
-    if not client or not from_num:
+    # ── Not configured (development / test): log instead of sending ──────────
+    if not client:
         logger.info(
             "[SMS-DEV] Would send to=%s council=%s body=%r",
             to_phone, council_id, body
@@ -89,15 +72,7 @@ def send_sms(to_phone: str, body: str, council_id: int | None = None) -> tuple[b
         return True, "dev-mode-not-sent"
 
     try:
-        kwargs: dict = {"body": body, "to": to_phone}
-
-        # Messaging Service SID (starts with MG) vs plain phone number
-        if from_num.startswith("MG"):
-            kwargs["messaging_service_sid"] = from_num
-        else:
-            kwargs["from_"] = from_num
-
-        message = client.messages.create(**kwargs)
+        message = client.messages.create(body=body, to=to_phone, **sender)
 
         logger.info(
             "SMS sent sid=%s to=%s council=%s status=%s",

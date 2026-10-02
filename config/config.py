@@ -1,24 +1,14 @@
 """
 GrantThrive — Application Configuration
 =========================================
+`Config` is loaded by create_app(); `TestingConfig` is used by the test suite.
+Every environment variable read by the backend is documented in .env.example.
 
-Configuration classes for development, testing, and production environments.
-
-Usage in application factory:
-
-    from config.config import config_by_name
-    app.config.from_object(config_by_name[os.environ.get("FLASK_ENV", "development")])
-
-Environment variables (.env):
-
-  SECRET_KEY
-  DATABASE_URL
-  DEV_DATABASE_URL
-  TEST_DATABASE_URL
-
-Example PostgreSQL connection:
-
-  DATABASE_URL=postgresql://granthrive_user:password@localhost:5432/granthrive
+Settings read directly from the environment by the modules that use them
+(not mirrored here): FIELD_ENCRYPTION_KEY / FIELD_HMAC_KEY (common/encryption),
+SYSTEM_CONFIG_ENCRYPTION_KEY (models.SystemConfig), ABR_GUID (common/abr_service),
+AWS_* and FRONTEND_BASE_URL / MARKETING_BASE_URL (common/email_service,
+common/s3_service), REDIS_URL (app/__init__).
 """
 
 import os
@@ -39,28 +29,36 @@ def _fix_postgres_url(url: str) -> str:
     return url
 
 
+def _flag(name: str, default: str) -> bool:
+    return os.environ.get(name, default).lower() == "true"
+
+
 class Config:
-    """Base configuration shared by all environments."""
+    """Configuration loaded by create_app()."""
 
     # ─────────────────────────────────────────
     # Core
     # ─────────────────────────────────────────
 
-    SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
+    # Required — signs JWTs. create_app() refuses to start without it.
+    SECRET_KEY = os.environ.get("SECRET_KEY", "")
+
+    # "development" enables developer-only features (demo login).
+    # Anything else — including unset — is treated as production.
+    FLASK_ENV = os.environ.get("FLASK_ENV", "production")
 
     DEBUG = False
     TESTING = False
 
+    # Public URL of the frontend: links in emails, Stripe Checkout/Portal returns.
+    FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://app.grantthrive.com").rstrip("/")
+
     # ─────────────────────────────────────────
-    # Database
+    # Database (PostgreSQL)
     # ─────────────────────────────────────────
 
-    SQLALCHEMY_DATABASE_URI = _fix_postgres_url(
-        os.environ.get("DATABASE_URL")
-    )
-
+    SQLALCHEMY_DATABASE_URI = _fix_postgres_url(os.environ.get("DATABASE_URL"))
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_size": 10,
         "max_overflow": 20,
@@ -69,120 +67,41 @@ class Config:
         "pool_pre_ping": True,
     }
 
-    # ─────────────────────────────────────────
-    # Mail
-    # ─────────────────────────────────────────
-
-    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.sendgrid.net")
-    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
-
-    MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
-
-    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
-    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
-
-    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", "")
-
-    # ─────────────────────────────────────────
-    # File Uploads
-    # ─────────────────────────────────────────
-
+    # Maximum request size (document uploads)
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
-
-    UPLOAD_FOLDER = os.environ.get(
-        "UPLOAD_FOLDER",
-        "/tmp/grantthrive_uploads"
-    )
-
-    UPLOAD_ALLOWED_EXTENSIONS = {
-        "pdf",
-        "doc",
-        "docx",
-        "xls",
-        "xlsx",
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "zip",
-    }
 
     # ─────────────────────────────────────────
     # Public contact forms / Cloudflare Turnstile
     # ─────────────────────────────────────────
-    # Contact routing and the Turnstile secret are deployment-only settings.
-    # Keep both out of source control and frontend build output.
-    CONTACT_INBOX_EMAIL = os.environ.get("CONTACT_INBOX_EMAIL", "")
     TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
     TURNSTILE_EXPECTED_HOSTNAMES = os.environ.get("TURNSTILE_EXPECTED_HOSTNAMES", "")
-    TURNSTILE_TEST_BYPASS = os.environ.get("TURNSTILE_TEST_BYPASS", "false").lower() == "true"
-    # Database-first public form workflow. The recipient receives a content-free
-    # alert and opens the protected system-admin dashboard to view submissions.
+    TURNSTILE_TEST_BYPASS = _flag("TURNSTILE_TEST_BYPASS", "false")
+    # Submissions are stored in the database; this address receives a
+    # content-free alert linking to the protected admin dashboard.
     ADMIN_NOTIFICATION_EMAIL = os.environ.get("ADMIN_NOTIFICATION_EMAIL", "")
     ADMIN_DASHBOARD_URL = os.environ.get(
         "ADMIN_DASHBOARD_URL", "https://admin.grantthrive.com/admin/dashboard?tab=form-submissions"
     )
-    PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED = (
-        os.environ.get("PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED", "true").lower() == "true"
-    )
+    PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED = _flag("PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED", "true")
 
     # ─────────────────────────────────────────
     # Billing (Stripe)
     # ─────────────────────────────────────────
-    # Secret key and webhook signing secret are deployment secrets.
     # Prices are resolved by lookup key (see scripts/stripe_setup.py).
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     STRIPE_PORTAL_CONFIGURATION_ID = os.environ.get("STRIPE_PORTAL_CONFIGURATION_ID", "")
-    # Public URL of the frontend; Stripe redirects back here after checkout.
-    APP_URL = os.environ.get("APP_URL", "http://localhost:5173").rstrip("/")
-
-    # ─────────────────────────────────────────
-    # Reports
-    # ─────────────────────────────────────────
-
-    REPORTS_OUTPUT_DIR = os.environ.get(
-        "REPORTS_OUTPUT_DIR",
-        os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "reports_output"
-        ),
-    )
-
-
-class DevelopmentConfig(Config):
-    """Development configuration."""
-
-    DEBUG = True
-
-    SQLALCHEMY_DATABASE_URI = _fix_postgres_url(
-        os.environ.get("DEV_DATABASE_URL")
-        or os.environ.get("DATABASE_URL")
-        or "postgresql://localhost/granthrive_dev"
-    )
-
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_size": 5,
-        "max_overflow": 10,
-        "pool_timeout": 30,
-        "pool_recycle": 1800,
-        "pool_pre_ping": True,
-    }
 
 
 class TestingConfig(Config):
-    """Testing configuration."""
+    """Configuration for the automated test suite."""
 
     TESTING = True
-
+    SECRET_KEY = os.environ.get("SECRET_KEY") or "test-secret-key"
     SQLALCHEMY_DATABASE_URI = _fix_postgres_url(
         os.environ.get("TEST_DATABASE_URL")
-        or "postgresql://localhost/granthrive_test"
+        or "postgresql://localhost/grantthrive_test"
     )
-
-    WTF_CSRF_ENABLED = False
-    MAIL_SUPPRESS_SEND = True
-
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_size": 2,
         "max_overflow": 5,
@@ -190,18 +109,3 @@ class TestingConfig(Config):
         "pool_recycle": 300,
         "pool_pre_ping": True,
     }
-
-
-class ProductionConfig(Config):
-    """Production configuration."""
-
-    pass
-
-
-# Environment mapping
-
-config_by_name = {
-    "development": DevelopmentConfig,
-    "testing": TestingConfig,
-    "production": ProductionConfig,
-}

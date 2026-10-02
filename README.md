@@ -67,8 +67,10 @@ chmod +x setup.sh
 This script will:
 1.  Create a Python virtual environment (`venv`).
 2.  Install all required Python dependencies.
-3.  Create a `.env` file from the example and generate a secure `SECRET_KEY`.
+3.  Create a `.env` file from `.env.example`, generating `SECRET_KEY` and the encryption keys.
 4.  Apply the database migrations to the PostgreSQL database in `DATABASE_URL` (see section 4).
+
+**Configuration.** [`.env.example`](.env.example) documents every environment variable the backend reads. The app refuses to start without `SECRET_KEY` and `DATABASE_URL`. Production also needs `FLASK_ENV` unset or `production`, `FRONTEND_BASE_URL`, the three encryption keys, AWS SES/S3, Stripe (section 5) and Turnstile values.
 
 Once the setup is complete, start the backend server:
 
@@ -234,7 +236,7 @@ The script is idempotent. It finds the six "GrantThrive <Plan> - Monthly/Yearly"
 | `STRIPE_SECRET_KEY` | Stripe secret key (`sk_test_…` / `sk_live_…`). Never commit it. |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret of the webhook endpoint (`whsec_…`). |
 | `STRIPE_PORTAL_CONFIGURATION_ID` | Printed by `scripts/stripe_setup.py` (`bpc_…`). |
-| `APP_URL` | Public frontend URL; Checkout and the portal redirect back here (e.g. `https://app.grantthrive.com`). |
+| `FRONTEND_BASE_URL` | Public frontend URL (shared with email links); Checkout and the portal redirect back here (e.g. `https://app.grantthrive.com`). |
 
 The frontend needs no Stripe keys — it redirects to Stripe-hosted pages.
 

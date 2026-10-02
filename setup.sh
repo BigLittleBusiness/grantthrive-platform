@@ -10,7 +10,7 @@
 #   1. Checks all system prerequisites (Python 3.11+)
 #   2. Creates and activates a Python virtual environment
 #   3. Installs all required Python packages
-#   4. Creates the .env file with a securely generated SECRET_KEY
+#   4. Creates .env with generated SECRET_KEY and encryption keys
 #   5. Applies database migrations (requires PostgreSQL — see .env.example)
 #   6. Confirms the server starts correctly and exits
 #
@@ -99,22 +99,21 @@ else
 
     cp .env.example .env
 
-    # Generate a cryptographically secure SECRET_KEY
-    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    # Fill every empty secret with a freshly generated random key.
+    python3 - <<'GENEOF'
+import base64, pathlib, re, secrets
+path = pathlib.Path(".env")
+text = path.read_text(encoding="utf-8")
+for key in ("SECRET_KEY", "FIELD_ENCRYPTION_KEY", "FIELD_HMAC_KEY", "SYSTEM_CONFIG_ENCRYPTION_KEY"):
+    value = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+    text = re.sub(rf'^{key}=""', f'{key}="{value}"', text, count=1, flags=re.M)
+path.write_text(text, encoding="utf-8")
+GENEOF
 
-    # Inject the generated key into .env
-    # Works on both Linux (sed -i) and macOS (sed -i '')
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|SECRET_KEY=\"\"|SECRET_KEY=\"${SECRET_KEY}\"|" .env
-        sed -i '' "s|SECRET_KEY=|SECRET_KEY=${SECRET_KEY}|" .env
-    else
-        sed -i "s|SECRET_KEY=\"\"|SECRET_KEY=\"${SECRET_KEY}\"|" .env
-    fi
-
-    ok ".env created with a generated SECRET_KEY"
+    ok ".env created with generated SECRET_KEY and encryption keys"
     echo ""
-    echo -e "  ${YELLOW}NOTE:${NC} Review .env and update MAIL_* settings before sending emails."
-    echo -e "  ${YELLOW}NOTE:${NC} For production, set DATABASE_URL to your PostgreSQL connection string."
+    echo -e "  ${YELLOW}NOTE:${NC} Set DATABASE_URL in .env to your PostgreSQL database before continuing."
+    echo -e "  ${YELLOW}NOTE:${NC} See .env.example for every other setting (AWS, Stripe, Turnstile, ...)."
 fi
 
 # Export environment variables for the remainder of this script

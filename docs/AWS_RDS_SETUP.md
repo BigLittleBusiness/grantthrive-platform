@@ -1,4 +1,134 @@
-> **Note:** This document is a work-in-progress and provides a foundational guide for deploying the GrantThrive platform to AWS. It assumes a moderate level of familiarity with AWS services.
+> # GrantThrive: AWS RDS for PostgreSQL Setup Guide
+
+This guide provides a detailed, step-by-step plan for creating and configuring a production-ready PostgreSQL database on AWS using the Relational Database Service (RDS). This database will serve as the backend for the GrantThrive platform.
+
+---
+
+## 1. Core Concepts: Why RDS?
+
+Using a managed service like RDS instead of running a database on an EC2 instance offers significant advantages:
+
+*   **Automated Management:** AWS handles patching, backups, and failover.
+*   **Scalability:** You can easily scale the database instance size or storage with minimal downtime.
+*   **High Availability:** RDS can be configured in a Multi-AZ (Availability Zone) deployment, which creates a standby replica in a different AZ for automatic failover.
+*   **Security:** RDS provides robust security features, including encryption at rest and in transit, and integrates with AWS IAM and VPC.
+
+---
+
+## 2. Preparation: VPC and Security Groups
+
+Before creating the database, you must have a Virtual Private Cloud (VPC) and a dedicated security group ready. This ensures your database is secure and only accessible by your application.
+
+### Step 1: Create a Dedicated DB Security Group
+
+1.  Navigate to the **VPC Dashboard** in the AWS Console.
+2.  Go to **Security > Security Groups** and click **Create security group**.
+3.  **Basic details:**
+    *   **Security group name:** `grantthrive-db-sg`
+    *   **Description:** `Allows inbound PostgreSQL traffic from the GrantThrive application server`
+    *   **VPC:** Select the VPC where you will run your EC2 backend server.
+4.  **Inbound rules:**
+    *   Click **Add rule**.
+    *   **Type:** `PostgreSQL` (This will automatically set the protocol to TCP and port to 5432).
+    *   **Source:** This is the most critical step. Select **Custom** and choose the security group of your **EC2 application server** (e.g., `grantthrive-backend-sg`). **Do not** open the database to the public (`0.0.0.0/0`).
+5.  Click **Create security group**.
+
+> **Pro Tip:** By sourcing the rule from another security group, you create a secure link between your application and database layers without hardcoding IP addresses.
+
+---
+
+## 3. Creating the RDS Instance
+
+Now, you will create the PostgreSQL database instance itself.
+
+### Step 1: Launch the RDS Creation Wizard
+
+1.  Navigate to the **RDS Dashboard** in the AWS Console.
+2.  Click **Create database**.
+
+### Step 2: Choose Creation Method and Engine
+
+1.  **Choose a database creation method:** Select **Standard Create**.
+2.  **Engine options:**
+    *   **Engine type:** `PostgreSQL`
+    *   **PostgreSQL version:** Select the latest available version (e.g., PostgreSQL 15.x or higher).
+
+### Step 3: Select a Template
+
+1.  **Templates:** Choose the template that matches your use case.
+    *   **Production:** Provides defaults for high availability and performance. Use this for your live environment.
+    *   **Dev/Test:** A less expensive configuration suitable for staging or testing.
+    *   **Free tier:** Excellent for initial development and testing at no cost (if your account is eligible).
+
+### Step 4: Configure Settings
+
+1.  **DB instance identifier:** Give your database a unique name, e.g., `grantthrive-prod-db`.
+2.  **Master credentials:**
+    *   **Master username:** `grantthrive_admin` (or your preferred admin username).
+    *   **Master password:** Enter a strong, secure password. Use a password manager to generate and store this.
+
+### Step 5: Configure Instance and Storage
+
+1.  **DB instance class:**
+    *   For production, `db.t3.medium` or `db.t4g.medium` is a good starting point.
+    *   For the free tier, `db.t3.micro` will be selected.
+2.  **Storage:**
+    *   **Storage type:** `General Purpose SSD (gp2)` is a good default.
+    *   **Allocated storage:** Start with `20` GiB. You can scale this up later.
+    *   **Enable storage autoscaling:** It is highly recommended to check this box to prevent your database from running out of space.
+
+### Step 6: Configure Connectivity
+
+This section is critical for ensuring your application can reach the database.
+
+1.  **Virtual Private Cloud (VPC):** Select the same VPC where your EC2 backend server will reside.
+2.  **DB Subnet Group:** It is best practice to place your database in private subnets. If you have a subnet group configured for this, select it. Otherwise, RDS can create one for you.
+3.  **Public access:** Ensure this is set to **No**.
+4.  **VPC security group (firewall):**
+    *   Choose **Choose existing**.
+    *   Select the `grantthrive-db-sg` security group you created earlier.
+5.  **Database port:** Leave as `5432`.
+
+### Step 7: Configure Database Authentication and Options
+
+1.  **Database authentication:** `Password authentication` is sufficient.
+2.  **Database options:**
+    *   **Initial database name:** `grantthrive_prod` (This creates a specific database inside the instance, which is cleaner than using the default `postgres` database).
+3.  **Backup:**
+    *   **Enable automatic backups:** This should be enabled by default for production. Set a suitable retention period (e.g., 7 days).
+4.  **Encryption:**
+    *   **Enable encryption:** This should be enabled by default. It encrypts your data at rest.
+5.  **Monitoring and Maintenance:**
+    *   Leave the defaults unless you have specific requirements.
+
+### Step 8: Create the Database
+
+Review all your settings on the summary page, then click **Create database**. The process can take 10-15 minutes.
+
+---
+
+## 4. Connecting to the Database
+
+Once the database status is **Available**, you can retrieve the connection details.
+
+1.  Click on your new database instance in the RDS console.
+2.  Go to the **Connectivity & security** tab.
+3.  Note the **Endpoint** and **Port**.
+
+Your full database connection URL (the `DATABASE_URL` for your `.env` file) will be in the following format:
+
+```
+postgresql://<YOUR_DB_USER>:<YOUR_DB_PASSWORD>@<YOUR_RDS_ENDPOINT>:<YOUR_RDS_PORT>/<YOUR_DB_NAME>
+```
+
+**Example:**
+
+```
+postgresql://grantthrive_admin:YourSecurePassword@grantthrive-prod-db.random-chars.ap-southeast-2.rds.amazonaws.com:5432/grantthrive_prod
+```
+
+This URL is what you will use to configure the backend Flask application, allowing it to connect to your new, production-ready database.
+"))_AWS_SETUP.md", text = "> **Note:** This document is a work-in-progress and provides a foundational guide for deploying the GrantThrive platform to AWS. It assumes a moderate level of familiarity with AWS services.
 
 # GrantThrive AWS Deployment Guide
 
@@ -34,7 +164,7 @@ This guide provides a complete walkthrough for deploying the GrantThrive full-st
 
 The first step is to create a managed PostgreSQL database. The `README.md` file contains a detailed, step-by-step guide for this.
 
-**Action:** Follow the instructions in **`README.md` -> Section 4 -> "Production Database (AWS RDS PostgreSQL)"**.
+**Action:** Follow the instructions in **`README.md` -> Section 4 -> \"Production Database (AWS RDS PostgreSQL)\"**.
 
 Once completed, you will have:
 1.  An active RDS for PostgreSQL instance.
@@ -100,7 +230,7 @@ Now, configure the environment for production:
 1.  Edit the `.env` file: `nano .env`
 2.  Set `FLASK_ENV=production`.
 3.  Set `DATABASE_URL` to the connection string for your AWS RDS instance.
-4.  Set `SERVER_NAME` to your backend's public domain (e.g., `api.grantthrive.com`).
+4.  Fill in the remaining production values listed in `.env.example`: `FRONTEND_BASE_URL`, the encryption keys (`FIELD_ENCRYPTION_KEY`, `FIELD_HMAC_KEY`, `SYSTEM_CONFIG_ENCRYPTION_KEY`), AWS SES/S3, Stripe and Turnstile.
 
 Initialize the database schema on RDS:
 
@@ -131,7 +261,7 @@ After=network.target
 User=ubuntu
 Group=www-data
 WorkingDirectory=/home/ubuntu/grantthrive-platform
-Environment="PATH=/home/ubuntu/grantthrive-platform/venv/bin"
+Environment=\"PATH=/home/ubuntu/grantthrive-platform/venv/bin\"
 ExecStart=/home/ubuntu/grantthrive-platform/venv/bin/gunicorn --workers 3 --bind unix:grantthrive.sock -m 007 wsgi:app
 
 [Install]
@@ -223,14 +353,14 @@ This will create a `dist` directory containing the optimized, static production 
 
     ```json
     {
-        "Version": "2012-10-17",
-        "Statement": [
+        \"Version\": \"2012-10-17\",
+        \"Statement\": [
             {
-                "Sid": "PublicReadGetObject",
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "s3:GetObject",
-                "Resource": "arn:aws:s3:::app.yourdomain.com/*"
+                \"Sid\": \"PublicReadGetObject\",
+                \"Effect\": \"Allow\",
+                \"Principal\": \"*\",
+                \"Action\": \"s3:GetObject\",
+                \"Resource\": \"arn:aws:s3:::app.yourdomain.com/*\"
             }
         ]
     }
@@ -271,3 +401,4 @@ Finally, update your domain's DNS records (e.g., in Amazon Route 53 or with your
 2.  Create an **A record** (or CNAME) for `app.yourdomain.com` that is an **Alias** to your **CloudFront distribution**.
 
 After DNS propagation (which can take a few minutes to a few hours), your GrantThrive application will be live on AWS.
+"))" />

@@ -10,7 +10,6 @@ import os
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_mail import Mail
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -18,7 +17,6 @@ from config.config import Config
 
 db = SQLAlchemy()
 migrate = Migrate()
-mail = Mail()
 
 # Use Redis as the rate-limiter storage backend in production.
 # Falls back to in-memory storage when REDIS_URL is not set (local dev / CI).
@@ -35,10 +33,18 @@ def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
+    missing = [key for key in ("SECRET_KEY", "SQLALCHEMY_DATABASE_URI") if not app.config.get(key)]
+    if missing:
+        names = {"SQLALCHEMY_DATABASE_URI": "DATABASE_URL"}
+        raise RuntimeError(
+            "Missing required configuration: "
+            + ", ".join(names.get(k, k) for k in missing)
+            + " (see .env.example)."
+        )
+
     # ── Extensions ─────────────────────────────
     db.init_app(app)
     migrate.init_app(app, db)
-    mail.init_app(app)
     limiter.init_app(app)
 
     # ── CORS ───────────────────────────────────

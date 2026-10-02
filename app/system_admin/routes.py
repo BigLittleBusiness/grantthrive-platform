@@ -751,8 +751,13 @@ def save_twilio_config(current_user):
         if value == '':
             SystemConfig.delete(key)
         else:
-            SystemConfig.set(key, value, sensitive=sensitive,
-                             updated_by=f'{current_user.first_name} {current_user.last_name}')
+            try:
+                SystemConfig.set(key, value, sensitive=sensitive,
+                                 updated_by=f'{current_user.first_name} {current_user.last_name}')
+            except RuntimeError as exc:
+                logger.error('Twilio config not saved: %s', exc)
+                return jsonify({'error': 'Server encryption key is not configured (SYSTEM_CONFIG_ENCRYPTION_KEY). '
+                                         'Secrets cannot be stored until it is set.'}), 503
         updated.append(key)
     _write_audit_log(
         current_user.id,

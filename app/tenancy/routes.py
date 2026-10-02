@@ -528,7 +528,7 @@ def start_trial():
     """
     from datetime import timedelta
     from app.auth.helpers import _generate_token, _user_to_dict
-    from app.tenancy.email import send_trial_welcome_email
+    from app.common.email_service import send_trial_welcome
     from app.common.plans import plan_entitlements, validate_plan_selection
     data         = request.get_json(silent=True) or {}
     council_name = (data.get('council_name') or '').strip()
@@ -628,7 +628,7 @@ def start_trial():
 
     # ── Send welcome email (non-blocking; errors are logged, not raised) ──────
     try:
-        send_trial_welcome_email(
+        send_trial_welcome(
             to_email     = email,
             first_name   = first_name,
             council_name = council_name,

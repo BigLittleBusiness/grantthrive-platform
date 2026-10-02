@@ -979,8 +979,11 @@ class SystemConfig(db.Model):
         stored_value = value
         if sensitive and value:
             f = cls._fernet()
-            if f:
-                stored_value = f.encrypt(value.encode()).decode()
+            if f is None:
+                raise RuntimeError(
+                    "SYSTEM_CONFIG_ENCRYPTION_KEY is missing or invalid; refusing to store a secret unencrypted."
+                )
+            stored_value = f.encrypt(value.encode()).decode()
         row = cls.query.filter_by(key=key).first()
         if row is None:
             row = cls(key=key)

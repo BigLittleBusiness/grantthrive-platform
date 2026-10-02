@@ -43,20 +43,19 @@ This is the most critical step. You must add the following secrets to the GitHub
 
 | Secret Name      | Description                                                                 | Example Value                                       |
 | :--------------- | :-------------------------------------------------------------------------- | :-------------------------------------------------- |
-| `VITE_API_URL`   | The full URL to the backend API, ending in `/api`.                          | `https://grantthrive.com/api`                         |
-| `VITE_LOGIN_URL` | The full URL to the frontend login page.                                    | `https://app.grantthrive.com/login`                   |
+| `VITE_API_URL`   | The backend API base, including `/api`.                                     | `/api` (same domain) or `https://api.grantthrive.com/api` |
 
 ### Required for `grantthrive-platform` ONLY
 
 | Secret Name             | Description                                                                 | Example Value                                       |
 | :---------------------- | :-------------------------------------------------------------------------- | :-------------------------------------------------- |
-| `SECRET_KEY`            | A long, random string for Flask session signing.                            | `openssl rand -hex 32`                              |
-| `DATABASE_URL`          | The full connection string for your production database (e.g., PostgreSQL). | `postgresql://user:pass@host:port/dbname`           |
-| `MAIL_SERVER`           | The hostname of your SMTP server.                                           | `smtp.sendgrid.net`                                 |
-| `MAIL_PORT`             | The port for your SMTP server.                                              | `587`                                               |
-| `MAIL_USERNAME`         | The username for your SMTP server (often `apikey` for SendGrid).            | `apikey`                                            |
-| `MAIL_PASSWORD`         | The password or API key for your SMTP server.                               | `SG.xxxxxxxx...`                                    |
-| `MAIL_DEFAULT_SENDER`   | The default "From" identity for platform emails.                            | Stored in the deployment secret manager              |
+| `SECRET_KEY`            | Random secret that signs login tokens (required).                           | see `.env.example` for the generator command        |
+| `DATABASE_URL`          | PostgreSQL connection string (required).                                    | `postgresql://user:pass@host:port/dbname`           |
+| `FIELD_ENCRYPTION_KEY`, `FIELD_HMAC_KEY`, `SYSTEM_CONFIG_ENCRYPTION_KEY` | Encryption keys for personal data and stored secrets. | 32-byte URL-safe base64 |
+| `AWS_SES_FROM_EMAIL`    | Verified SES sender for platform emails (with `AWS_SES_ENABLED=true`).      | `no-reply@grantthrive.com`                          |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PORTAL_CONFIGURATION_ID` | Stripe billing (README section 5). | `sk_live_...`, `whsec_...`, `bpc_...` |
+
+The complete, authoritative list of backend variables is `.env.example`.
 
 ---
 

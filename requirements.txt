@@ -31,7 +31,6 @@ cryptography==42.0.8
 
 Flask-CORS==4.0.0
 Flask-Limiter==3.9.2
-Flask-Mail==0.10.0
 
 # ─────────────────────────────────────────
 # Utilities

@@ -10,11 +10,11 @@ development can proceed without live AWS credentials.
 
 Configuration (environment variables / .env):
     AWS_SES_ENABLED       = true | false   (default: false)
-    AWS_SES_REGION        = ap-southeast-2
-    AWS_ACCESS_KEY_ID     = <key>
-    AWS_SECRET_ACCESS_KEY = <secret>
-    AWS_SES_FROM_EMAIL    = configured through deployment secrets
-    FRONTEND_BASE_URL     = https://app.grantthrive.com   (used in email links)
+    AWS_SES_FROM_EMAIL    = verified SES sender address
+    AWS_REGION            = ap-southeast-2 (shared with S3)
+    AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — omit when using an IAM role
+    FRONTEND_BASE_URL     = https://app.grantthrive.com   (links in emails)
+    MARKETING_BASE_URL    = https://www.grantthrive.com   (contact/footer links)
 """
 
 import logging
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 FROM_EMAIL   = os.environ.get('AWS_SES_FROM_EMAIL', '')
 FROM_NAME    = 'GrantThrive'
-FRONTEND_URL = os.environ.get('FRONTEND_BASE_URL', 'https://app.grantthrive.com')
-MARKETING_URL = os.environ.get('MARKETING_BASE_URL', 'https://www.grantthrive.com')
+FRONTEND_URL = os.environ.get('FRONTEND_BASE_URL', 'https://app.grantthrive.com').rstrip('/')
+MARKETING_URL = os.environ.get('MARKETING_BASE_URL', 'https://www.grantthrive.com').rstrip('/')
 
 # ── Shared HTML helpers ───────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ def send_email(
 
         client = boto3.client(
             'ses',
-            region_name=os.environ.get('AWS_SES_REGION', 'ap-southeast-2'),
+            region_name=os.environ.get('AWS_REGION', 'ap-southeast-2'),
         )
         message = {
             'Source': f'{FROM_NAME} <{FROM_EMAIL}>',
@@ -182,6 +182,26 @@ def send_registration_confirmation(to_email: str, first_name: str) -> bool:
 <p>If you did not create this account, please <a href="{MARKETING_URL}/contact" style="color:#15803d;">use the GrantThrive contact form</a> immediately.</p>
 <p>We are glad to have you.<br><strong>The GrantThrive Team</strong></p>"""
     text = f"Hi {first_name},\n\nWelcome to GrantThrive! Your account is ready.\n\nVisit: {FRONTEND_URL}\n\nThe GrantThrive Team"
+    return send_email(to_email, subject, html, text)
+
+
+def send_trial_welcome(to_email: str, first_name: str, council_name: str, portal_url: str, trial_ends) -> bool:
+    subject = "Welcome to GrantThrive — Your 14-Day Trial Has Started"
+    trial_end = trial_ends.strftime('%d %B %Y')
+    html = f"""
+<h2>Hi {first_name}, welcome to GrantThrive!</h2>
+<p>Your trial for <strong>{council_name}</strong> is active until <strong>{trial_end}</strong>.</p>
+<div class="info-box">
+  <p><strong>1. Create your first grant program</strong> — publish it to start receiving applications.</p>
+  <p><strong>2. Invite your team</strong> — add staff to review and assess applications.</p>
+  <p><strong>3. Choose your plan</strong> — subscribe under Account &amp; Billing before your trial ends.</p>
+</div>
+<a href="{portal_url}" class="cta-btn">Open Your Council Portal &rarr;</a>
+<p>Questions? <a href="{MARKETING_URL}/contact" style="color:#15803d;">Contact the GrantThrive team</a>.<br><strong>The GrantThrive Team</strong></p>"""
+    text = (
+        f"Hi {first_name},\n\nYour GrantThrive trial for {council_name} is active until {trial_end}.\n\n"
+        f"Open your council portal: {portal_url}\n\nThe GrantThrive Team"
+    )
     return send_email(to_email, subject, html, text)
 
 
@@ -496,7 +516,7 @@ def send_monthly_report_pdf(
 
         client = boto3.client(
             'ses',
-            region_name=os.environ.get('AWS_SES_REGION', 'ap-southeast-2'),
+            region_name=os.environ.get('AWS_REGION', 'ap-southeast-2'),
         )
         client.send_raw_email(
             Source=f'{FROM_NAME} <{FROM_EMAIL}>',
