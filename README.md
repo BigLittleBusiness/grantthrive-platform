@@ -11,7 +11,7 @@ The GrantThrive platform consists of two primary components:
 *   **Backend (`grantthrive-platform`):** A robust API server built with **Flask** (Python). It handles all business logic, user authentication, and database interactions.
 *   **Frontend (`grantthrive-frontend`):** A modern single-page application built with **React** and **Vite**. It contains all the user interfaces, including the main council portal and public-facing pages.
 
-These two projects are designed to run concurrently and communicate with each other. The frontend development server uses a proxy to forward all API requests to the backend server.
+These two projects are designed to run concurrently and communicate with each other. Every backend endpoint is served under `/api`; the frontend calls the backend directly at `VITE_API_URL` (which includes `/api`).
 
 ---
 
@@ -22,7 +22,8 @@ Before you begin, ensure you have the following tools installed on your system:
 | Tool | Minimum Version | Installation Command |
 | :--- | :--- | :--- |
 | Git | 2.34+ | `sudo apt install git` |
-| Python | 3.11+ | `sudo apt install python3.11` |
+| Python | 3.11 or 3.12 (newer versions lack wheels for pinned dependencies) | `sudo apt install python3.11` |
+| PostgreSQL | 15+ | `sudo apt install postgresql` |
 | Node.js | 22.0+ | `nvm install 22` or from official site |
 | pnpm | 10.0+ | `npm install -g pnpm` |
 
@@ -181,4 +182,91 @@ flask db upgrade
 
 ```
 
-Your backend application is now configured to use the production AWS RDS database. When you restart the Flask application, it will connect to PostgreSQL instead of the local SQLite file.
+Your backend application is now configured to use the production AWS RDS database. When you restart the Flask application, it will connect to the RDS database.
+
+---
+
+## 5. Billing (Stripe Subscriptions)
+
+Councils pay for GrantThrive with a Stripe subscription. Customers with an Australian billing address are charged **10% GST on top** of the plan price (via Stripe Tax); overseas customers are not charged GST. All charges are in AUD.
+
+### How it works
+
+1.  **Registration** — a council must choose a plan (`small` / `medium` / `large`) and a billing cycle (`monthly` / `annual`). The choice is stored on the pending user.
+2.  **Approval** — when a system admin approves the registration, the council is created on trial limits and the chosen plan is copied to it. Nobody is charged before approval.
+3.  **Checkout** — the council admin subscribes from **Account & Billing** (their plan is pre-selected). The backend creates a Stripe Checkout session; Stripe collects the card, billing address (which determines GST) and optional ABN.
+4.  **Activation** — the subscription is applied to the council (its `plan` switches from `trial` to the subscribed plan) both when the user returns from Checkout and via the webhook.
+5.  **Management** — "Manage billing" opens the Stripe Customer Portal (card, invoices, plan change, cancellation). Renewals, failed payments and cancellations reach the app through the webhook.
+
+| Subscription status | Council entitlements |
+| :--- | :--- |
+| `active`, `trialing`, `past_due` | The subscribed plan |
+| `canceled`, `unpaid`, `incomplete_expired` | Trial limits |
+
+### API (`/api/billing`)
+
+| Endpoint | Who | Purpose |
+| :--- | :--- | :--- |
+| `GET /plans` | Public | Plan prices from Stripe (ex-GST) with each plan's limits |
+| `POST /checkout-session` | Council admin | Start Checkout `{ plan, billing_cycle }` → `{ url }` |
+| `POST /checkout-session/sync` | Council admin | Apply a completed checkout on return `{ session_id }` |
+| `POST /portal-session` | Council admin | Open the Customer Portal → `{ url }` |
+| `POST /webhook` | Stripe | Signed webhook events |
+
+The council's subscription state is also returned in `GET /api/councils/<id>/billing` (`subscription` block).
+
+### One-time Stripe account setup
+
+Requires **Stripe Tax** to be active with an Australian registration (Stripe Dashboard → Tax). Then run:
+
+```bash
+STRIPE_SECRET_KEY=sk_test_... python scripts/stripe_setup.py
+```
+
+The script is idempotent. It finds the six "GrantThrive <Plan> - Monthly/Yearly" prices, gives them lookup keys (`grantthrive_<plan>_<monthly|annual>`), marks them **tax-exclusive** (so GST is added on top), sets the SaaS tax code, creates a GrantThrive Customer Portal configuration and prints `STRIPE_PORTAL_CONFIGURATION_ID`. Run it once per Stripe account (test and live).
+
+> Prices are always charged from Stripe. To change a price, create a new price in Stripe and move the lookup key to it (re-running the script handles this for matching product names). The admin "Pricing Management" screen only changes prices displayed in the app.
+
+### Environment variables
+
+| Variable | Description |
+| :--- | :--- |
+| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_test_…` / `sk_live_…`). Never commit it. |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret of the webhook endpoint (`whsec_…`). |
+| `STRIPE_PORTAL_CONFIGURATION_ID` | Printed by `scripts/stripe_setup.py` (`bpc_…`). |
+| `APP_URL` | Public frontend URL; Checkout and the portal redirect back here (e.g. `https://app.grantthrive.com`). |
+
+The frontend needs no Stripe keys — it redirects to Stripe-hosted pages.
+
+### Webhook
+
+In the Stripe Dashboard → **Developers → Webhooks → Add endpoint**:
+
+*   **Endpoint URL:** `https://<your API host>/api/billing/webhook`
+*   **Events to send:**
+
+| Event | Why |
+| :--- | :--- |
+| `checkout.session.completed` | A council finished Checkout — activate the subscription |
+| `customer.subscription.created` | Subscription created |
+| `customer.subscription.updated` | Plan change, renewal, `past_due`, cancel-at-period-end |
+| `customer.subscription.deleted` | Subscription ended — council returns to trial limits |
+| `customer.subscription.paused` | Subscription paused |
+| `customer.subscription.resumed` | Subscription resumed |
+| `invoice.paid` | Renewal paid — refresh status and period end |
+| `invoice.payment_failed` | Payment failed — status becomes `past_due` |
+
+Copy the endpoint's **Signing secret** into `STRIPE_WEBHOOK_SECRET`. Use a separate endpoint (and secret) for test mode and live mode.
+
+For local development, use the [Stripe CLI](https://docs.stripe.com/stripe-cli):
+
+```bash
+stripe listen --forward-to localhost:5000/api/billing/webhook
+# copy the printed whsec_... into STRIPE_WEBHOOK_SECRET and restart the backend
+```
+
+Without a webhook, a payment is still confirmed when the user returns from Checkout, but renewals, failed payments and cancellations made in Stripe will not reach the app.
+
+### Testing
+
+Use Stripe test mode with card `4242 4242 4242 4242`, any future expiry and any CVC. An Australian billing address shows `GST (10%)` at checkout; other countries show no GST.
