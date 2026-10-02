@@ -20,6 +20,7 @@ from flask import request, jsonify, g
 
 from app import db, limiter
 from app.models import User
+from app.common.plans import validate_plan_selection
 from app.auth import bp
 from app.auth.helpers import (
     _find_user_by_email,
@@ -66,11 +67,17 @@ def _register_council_user(data: dict):
     position = (data.get("position") or "").strip() or None
     department = (data.get("department") or "").strip() or None
     requested_subdomain = (data.get("subdomain") or "").strip() or None
+    plan = (data.get("plan") or "").strip().lower()
+    billing_cycle = (data.get("billing_cycle") or "").strip().lower()
 
     if not all([email, password, first_name, last_name]):
         return jsonify({"error": "Email, password, first name, and last name are required."}), 400
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters."}), 400
+
+    plan_error = validate_plan_selection(plan, billing_cycle)
+    if plan_error:
+        return jsonify({"error": plan_error}), 400
 
     # ── ABN validation ────────────────────────────────────────────────────────
     if abn_raw:
@@ -155,6 +162,8 @@ def _register_council_user(data: dict):
         position=position,
         department=department,
         requested_subdomain=requested_subdomain,
+        requested_plan=plan,
+        requested_billing_cycle=billing_cycle,
     )
     user.set_email(email)
     user.set_password(password)

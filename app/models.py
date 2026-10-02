@@ -52,9 +52,19 @@ class Council(db.Model):
     postcode        = db.Column(db.String(10))
 
     # Subscription / billing
+    # `plan` drives entitlements: 'trial' until a Stripe subscription is active,
+    # then the subscribed plan (small, medium, large).
     plan                   = db.Column(db.String(20), default='small')   # small, medium, large, trial
     is_active              = db.Column(db.Boolean, default=True)
     trial_ends_at          = db.Column(db.DateTime)
+    # Plan + cycle chosen at registration / held by the Stripe subscription
+    billing_plan           = db.Column(db.String(20))                    # small, medium, large
+    billing_cycle          = db.Column(db.String(10))                    # monthly, annual
+    stripe_customer_id     = db.Column(db.String(64), unique=True, index=True)
+    stripe_subscription_id = db.Column(db.String(64), unique=True, index=True)
+    subscription_status    = db.Column(db.String(32))                    # Stripe subscription status
+    current_period_end     = db.Column(db.DateTime)
+    cancel_at_period_end   = db.Column(db.Boolean, default=False, nullable=False)
     # Add-ons (purchasable by Small Council only)
     addon_community_voting = db.Column(db.Boolean, default=False)
     addon_grant_mapping    = db.Column(db.Boolean, default=False)
@@ -171,6 +181,9 @@ class User(db.Model):
     # Requested subdomain — stored at registration, used when system_admin approves
     # and creates the Council record.  NULL for non-council roles.
     requested_subdomain = db.Column(db.String(100), nullable=True, index=True)
+    # Plan + billing cycle chosen at council registration, copied to the Council on approval.
+    requested_plan          = db.Column(db.String(20), nullable=True)
+    requested_billing_cycle = db.Column(db.String(10), nullable=True)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login    = db.Column(db.DateTime)
     # Password reset

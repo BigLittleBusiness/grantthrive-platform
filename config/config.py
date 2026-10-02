@@ -127,6 +127,17 @@ class Config:
     )
 
     # ─────────────────────────────────────────
+    # Billing (Stripe)
+    # ─────────────────────────────────────────
+    # Secret key and webhook signing secret are deployment secrets.
+    # Prices are resolved by lookup key (see scripts/stripe_setup.py).
+    STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    STRIPE_PORTAL_CONFIGURATION_ID = os.environ.get("STRIPE_PORTAL_CONFIGURATION_ID", "")
+    # Public URL of the frontend; Stripe redirects back here after checkout.
+    APP_URL = os.environ.get("APP_URL", "http://localhost:5173").rstrip("/")
+
+    # ─────────────────────────────────────────
     # Reports
     # ─────────────────────────────────────────
 

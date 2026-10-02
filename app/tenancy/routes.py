@@ -513,7 +513,9 @@ def start_trial():
           "last_name":     "Johnson",
           "email":         "sarah@melbourne.vic.gov.au",
           "password":      "...",
-          "phone":         "+61 3 9658 9658"   (optional)
+          "phone":         "+61 3 9658 9658",  (optional)
+          "plan":          "small",            (small | medium | large)
+          "billing_cycle": "monthly"           (monthly | annual)
         }
 
     Response (201):
@@ -527,7 +529,7 @@ def start_trial():
     from datetime import timedelta
     from app.auth.helpers import _generate_token, _user_to_dict
     from app.tenancy.email import send_trial_welcome_email
-    from app.common.plans import plan_entitlements
+    from app.common.plans import plan_entitlements, validate_plan_selection
     data         = request.get_json(silent=True) or {}
     council_name = (data.get('council_name') or '').strip()
     state        = (data.get('state') or '').strip().upper()
@@ -536,12 +538,10 @@ def start_trial():
     email        = (data.get('email') or '').strip().lower()
     password     = data.get('password') or ''
     phone        = (data.get('phone') or '').strip() or None
-    # The plan the council intends to subscribe to after the trial.
-    # Stored for reference; entitlements during trial are always 'trial' limits.
-    VALID_PLANS = {'small', 'medium', 'large'}
-    intended_plan = (data.get('intended_plan') or 'small').lower()
-    if intended_plan not in VALID_PLANS:
-        intended_plan = 'small'
+    # The plan + billing cycle the council will subscribe to; entitlements
+    # during the trial are always 'trial' limits.
+    intended_plan = (data.get('plan') or '').strip().lower()
+    billing_cycle = (data.get('billing_cycle') or '').strip().lower()
 
     # ── Validation ────────────────────────────────────────────────────────────
     errors = {}
@@ -557,6 +557,9 @@ def start_trial():
         errors['email'] = 'A valid email address is required.'
     if len(password) < 10:
         errors['password'] = 'Password must be at least 10 characters.'
+    plan_error = validate_plan_selection(intended_plan, billing_cycle)
+    if plan_error:
+        errors['plan'] = plan_error
     if errors:
         return jsonify({'errors': errors}), 400
 
@@ -588,6 +591,8 @@ def start_trial():
         plan          = 'trial',
         is_active     = True,
         trial_ends_at = trial_ends,
+        billing_plan  = intended_plan,
+        billing_cycle = billing_cycle,
         contact_email = email,
         contact_phone = phone,
     )
@@ -835,6 +840,7 @@ def get_billing_info(current_user, council_id):
         return jsonify({'error': 'Access denied.'}), 403
 
     from app.common.plans import get_live_plan_pricing, plan_entitlements
+    from app.billing.stripe_service import subscription_summary
     plan_key = council.plan or 'trial'
     # get_live_plan_pricing(plan_key) requires a plan_key argument.
     # 'trial' is not a paid plan so pricing fields will be None/absent.
@@ -894,6 +900,8 @@ def get_billing_info(current_user, council_id):
             'website_url':   council.website_url,
         },
         'entitlements': plan_entitlements(plan_key),
+        # Stripe subscription (plan/cycle chosen at registration until subscribed)
+        'subscription': subscription_summary(council),
     }), 200
 
 

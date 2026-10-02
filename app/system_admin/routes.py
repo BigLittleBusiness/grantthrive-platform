@@ -429,6 +429,8 @@ def _pending_user_to_dict(user: User) -> dict:
         "position":         getattr(user, 'position', None),
         "department":       getattr(user, 'department', None),
         "subdomain":        getattr(user, 'requested_subdomain', None),
+        "plan":             user.requested_plan,
+        "billing_cycle":    user.requested_billing_cycle,
         "is_active":        user.is_active,
         "is_approved":      user.is_approved,
         "created_at":       user.created_at.isoformat() if user.created_at else None,
@@ -519,6 +521,8 @@ def approve_pending_user(current_user, user_id):
             trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14),
             contact_email = user.email,
             contact_phone = user.phone,
+            billing_plan  = user.requested_plan,
+            billing_cycle = user.requested_billing_cycle,
         )
         db.session.add(council)
         db.session.flush()

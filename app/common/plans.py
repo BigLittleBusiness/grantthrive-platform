@@ -190,6 +190,19 @@ PLAN_LIMITS: dict[str, PlanLimits] = {
 # Default fallback for unknown plan strings
 _DEFAULT_PLAN = PLAN_LIMITS["small"]
 
+# Plans a council can subscribe to, and the billing cycles they're sold in.
+PAID_PLANS = ("small", "medium", "large")
+BILLING_CYCLES = ("monthly", "annual")
+
+
+def validate_plan_selection(plan, billing_cycle) -> str | None:
+    """Return an error message if the plan/billing-cycle selection is invalid, else None."""
+    if plan not in PAID_PLANS:
+        return "Please select a plan: small, medium or large."
+    if billing_cycle not in BILLING_CYCLES:
+        return "Please select a billing cycle: monthly or annual."
+    return None
+
 
 # ── Public helpers ────────────────────────────────────────────────────────────
 

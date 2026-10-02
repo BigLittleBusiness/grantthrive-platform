@@ -89,6 +89,7 @@ def create_app(config_class=Config):
     from app.pricing.routes import pricing_bp
     from app.api.abn import abn_bp
     from app.contact import bp as contact_bp
+    from app.billing import bp as billing_bp
 
     app.register_blueprint(health_bp, url_prefix="/api")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -104,6 +105,7 @@ def create_app(config_class=Config):
     app.register_blueprint(pricing_bp, url_prefix="/api/pricing")
     app.register_blueprint(abn_bp, url_prefix="/api")
     app.register_blueprint(contact_bp, url_prefix="/api")
+    app.register_blueprint(billing_bp, url_prefix="/api/billing")
 
     # ── Tenant middleware ──────────────────────
     from app.tenancy.middleware import resolve_tenant
