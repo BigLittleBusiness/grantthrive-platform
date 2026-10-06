@@ -9,16 +9,22 @@ jobs:
     steps:
       - name: Seed GrantThrive Test Council accounts
         uses: appleboy/ssh-action@v1.0.0
+        env:
+          ACCEPTANCE_TEST_ADMIN_PASSWORD: ${{ secrets.ACCEPTANCE_TEST_ADMIN_PASSWORD }}
+          ACCEPTANCE_TEST_STAFF_PASSWORD: ${{ secrets.ACCEPTANCE_TEST_STAFF_PASSWORD }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
+          envs: ACCEPTANCE_TEST_ADMIN_PASSWORD,ACCEPTANCE_TEST_STAFF_PASSWORD
           script: |
             set -e
             cd ${{ secrets.VPS_PROJECT_PATH }}
             set -a
             source .env
             set +a
+            GT_TEST_ADMIN_PASSWORD="$ACCEPTANCE_TEST_ADMIN_PASSWORD" \
+            GT_TEST_STAFF_PASSWORD="$ACCEPTANCE_TEST_STAFF_PASSWORD" \
             venv/bin/python manage.py seed-test-accounts
             echo "Isolated GrantThrive Test Council accounts seeded."
