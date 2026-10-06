@@ -37,9 +37,9 @@ jobs:
                     print('Acceptance account configuration detected.')
                     break
             PY
-            GT_TEST_ADMIN_PASSWORD="$ACCEPTANCE_TEST_ADMIN_PASSWORD" \
-            GT_TEST_STAFF_PASSWORD="$ACCEPTANCE_TEST_STAFF_PASSWORD" \
-            venv/bin/python manage.py seed-test-accounts
+            venv/bin/flask --app manage:app seed-test-accounts \
+              --admin-password "$ACCEPTANCE_TEST_ADMIN_PASSWORD" \
+              --staff-password "$ACCEPTANCE_TEST_STAFF_PASSWORD"
             venv/bin/python - <<'PY'
             import os
 
