@@ -40,4 +40,27 @@ jobs:
             GT_TEST_ADMIN_PASSWORD="$ACCEPTANCE_TEST_ADMIN_PASSWORD" \
             GT_TEST_STAFF_PASSWORD="$ACCEPTANCE_TEST_STAFF_PASSWORD" \
             venv/bin/python manage.py seed-test-accounts
+            venv/bin/python - <<'PY'
+            import os
+
+            from app import create_app, db
+            from app.common.encryption import hmac_index
+            from app.models import User
+
+            app = create_app()
+            with app.app_context():
+                accounts = (
+                    ('council_admin_test@grantthrive.com', 'council_admin', os.environ['ACCEPTANCE_TEST_ADMIN_PASSWORD']),
+                    ('council_staff_test@grantthrive.com', 'council_staff', os.environ['ACCEPTANCE_TEST_STAFF_PASSWORD']),
+                )
+                for email, role, password in accounts:
+                    user = User.query.filter_by(email_hmac=hmac_index(email)).first()
+                    if user is None or user.role != role:
+                        raise RuntimeError(f'Expected isolated {role} acceptance account was not found.')
+                    user.set_password(password)
+                    user.is_active = True
+                    user.is_approved = True
+                db.session.commit()
+            print('Isolated acceptance account credentials refreshed.')
+            PY
             echo "Isolated GrantThrive Test Council accounts seeded."
