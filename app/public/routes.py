@@ -17,6 +17,7 @@ from sqlalchemy import func, desc
 from app import db
 from app.models import Grant, Application, CommunityVote, VotingSession
 from app.public import public
+from app.common.datetime_utils import utc_iso
 
 
 def _published_applications(status=None):
@@ -72,8 +73,8 @@ def grants():
         'category': g.category,
         'total_budget': float(g.total_budget or 0),
         'status': g.status,
-        'opens_at': g.opens_at.isoformat() if g.opens_at else None,
-        'closes_at': g.closes_at.isoformat() if g.closes_at else None,
+        'opens_at': utc_iso(g.opens_at),
+        'closes_at': utc_iso(g.closes_at),
         'application_count': g.applications.filter(Application.status != 'draft').count(),
         'location': {
             'name': g.location_name,
@@ -193,7 +194,7 @@ def transparency():
             'category': g.category,
             'status': g.status,
             'total_budget': float(g.total_budget or 0),
-            'closes_at': g.closes_at.isoformat() if g.closes_at else None,
+            'closes_at': utc_iso(g.closes_at),
         } for g in recent_grants],
         'timestamp': now.isoformat(),
     })
@@ -243,7 +244,7 @@ def results():
             'title': g.title,
             'category': g.category,
             'total_budget': float(g.total_budget or 0),
-            'closes_at': g.closes_at.isoformat() if g.closes_at else None,
+            'closes_at': utc_iso(g.closes_at),
             'approved_count': Application.query.filter_by(grant_id=g.id, status='approved').count(),
         } for g in completed_grants],
         'timestamp': now.isoformat(),

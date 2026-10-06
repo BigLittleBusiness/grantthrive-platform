@@ -36,6 +36,7 @@ from app import db
 from app.grants import bp
 from app.models import Grant, Application, Council, User
 from app.common.permissions import permission_required
+from app.common.datetime_utils import parse_api_datetime, utc_iso
 from app.common.plans import check_grant_limit, can_use_feature
 
 logger = logging.getLogger(__name__)
@@ -53,8 +54,8 @@ def _grant_to_dict(grant: Grant, detail: bool = False) -> dict:
         "total_budget":   float(grant.total_budget) if grant.total_budget else None,
         "max_amount":     float(grant.max_amount_per_application) if grant.max_amount_per_application else None,
         "min_amount":     float(grant.min_amount_per_application) if grant.min_amount_per_application else None,
-        "opens_at":       grant.opens_at.isoformat() if grant.opens_at else None,
-        "closes_at":      grant.closes_at.isoformat() if grant.closes_at else None,
+        "opens_at":       utc_iso(grant.opens_at),
+        "closes_at":      utc_iso(grant.closes_at),
         "status":         grant.status,
         "is_published":   grant.is_published,
         "is_open":        grant.is_open,
@@ -63,8 +64,8 @@ def _grant_to_dict(grant: Grant, detail: bool = False) -> dict:
     }
     if detail:
         d.update({
-            "assessment_deadline":         grant.assessment_deadline.isoformat() if grant.assessment_deadline else None,
-            "notification_date":           grant.notification_date.isoformat() if grant.notification_date else None,
+            "assessment_deadline":         utc_iso(grant.assessment_deadline),
+            "notification_date":           utc_iso(grant.notification_date),
             "allow_multiple_applications": grant.allow_multiple_applications,
             "require_community_voting":    grant.require_community_voting,
             "enable_mapping":              grant.enable_mapping,
@@ -230,14 +231,14 @@ def create_grant(current_user):
                 }), 403
 
     try:
-        opens_at = datetime.fromisoformat(data["opens_at"])
-        closes_at = datetime.fromisoformat(data["closes_at"])
+        opens_at = parse_api_datetime(data["opens_at"])
+        closes_at = parse_api_datetime(data["closes_at"])
         assessment_deadline = (
-            datetime.fromisoformat(data["assessment_deadline"])
+            parse_api_datetime(data["assessment_deadline"])
             if data.get("assessment_deadline") else None
         )
         notification_date = (
-            datetime.fromisoformat(data["notification_date"])
+            parse_api_datetime(data["notification_date"])
             if data.get("notification_date") else None
         )
     except ValueError:
@@ -312,7 +313,7 @@ def update_grant(current_user, grant_id):
             val = data[field]
             if field in ("opens_at", "closes_at", "assessment_deadline", "notification_date") and val:
                 try:
-                    val = datetime.fromisoformat(val)
+                    val = parse_api_datetime(val)
                 except ValueError:
                     return jsonify({"error": f"Invalid date for {field}."}), 400
             setattr(grant, field, val)
