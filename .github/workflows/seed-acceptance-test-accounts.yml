@@ -1,0 +1,25 @@
+name: Seed Isolated Acceptance Test Accounts
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Seed GrantThrive Test Council accounts
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd ${{ secrets.VPS_PROJECT_PATH }}
+            set -a
+            source .env
+            set +a
+            export FLASK_APP=wsgi:app FLASK_ENV=production
+            venv/bin/flask seed-test-accounts
+            echo "Isolated GrantThrive Test Council accounts seeded."
