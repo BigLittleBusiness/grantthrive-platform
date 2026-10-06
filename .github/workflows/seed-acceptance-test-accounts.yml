@@ -37,27 +37,51 @@ jobs:
                     print('Acceptance account configuration detected.')
                     break
             PY
-            venv/bin/flask --app manage:app seed-test-accounts \
-              --admin-password "$ACCEPTANCE_TEST_ADMIN_PASSWORD" \
-              --staff-password "$ACCEPTANCE_TEST_STAFF_PASSWORD"
             venv/bin/python - <<'PY'
             import os
 
             from app import create_app, db
             from app.common.encryption import hmac_index
-            from app.models import User
+            from app.models import Council, User
 
             app = create_app()
             with app.app_context():
+                council = Council.query.filter_by(subdomain='gt-test').first()
+                if council is None:
+                    council = Council(
+                        name='GrantThrive Test Council',
+                        subdomain='gt-test',
+                        slug='grantthrive-test-council',
+                        state='QLD',
+                        plan='medium',
+                        is_active=True,
+                        addon_community_voting=True,
+                        addon_grant_mapping=True,
+                    )
+                    db.session.add(council)
+                    db.session.flush()
                 accounts = (
-                    ('council_admin_test@grantthrive.com', 'council_admin', os.environ['ACCEPTANCE_TEST_ADMIN_PASSWORD']),
-                    ('council_staff_test@grantthrive.com', 'council_staff', os.environ['ACCEPTANCE_TEST_STAFF_PASSWORD']),
+                    ('council_admin_test@grantthrive.com', 'council_admin', 'Test', 'Admin', os.environ['ACCEPTANCE_TEST_ADMIN_PASSWORD']),
+                    ('council_staff_test@grantthrive.com', 'council_staff', 'Test', 'Staff', os.environ['ACCEPTANCE_TEST_STAFF_PASSWORD']),
                 )
-                for email, role, password in accounts:
+                for email, role, first_name, last_name, password in accounts:
                     user = User.query.filter_by(email_hmac=hmac_index(email)).first()
-                    if user is None or user.role != role:
-                        raise RuntimeError(f'Expected isolated {role} acceptance account was not found.')
+                    if user is None:
+                        user = User(
+                            username=email.split('@')[0],
+                            first_name=first_name,
+                            last_name=last_name,
+                            role=role,
+                            council_id=council.id,
+                            position='Test Account',
+                            department='Quality Assurance',
+                        )
+                        user.set_email(email)
+                        db.session.add(user)
+                    elif user.role != role:
+                        raise RuntimeError(f'Isolated acceptance email is assigned to an unexpected role.')
                     user.set_password(password)
+                    user.council_id = council.id
                     user.is_active = True
                     user.is_approved = True
                 db.session.commit()
