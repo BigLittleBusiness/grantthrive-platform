@@ -20,6 +20,5 @@ jobs:
             set -a
             source .env
             set +a
-            export FLASK_APP=wsgi:app FLASK_ENV=production
-            venv/bin/flask seed-test-accounts
+            venv/bin/python manage.py seed-test-accounts
             echo "Isolated GrantThrive Test Council accounts seeded."
