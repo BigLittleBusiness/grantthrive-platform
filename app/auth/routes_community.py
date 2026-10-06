@@ -17,6 +17,7 @@ from flask import request, jsonify, g
 from app import db, limiter
 from app.models import User
 from app.auth import bp
+from app.common.password_policy import password_error
 from app.auth.helpers import _find_user_by_email, _user_to_dict, _write_audit_log
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,9 @@ def _register_open_user(data: dict):
 
     if not all([email, password, first_name, last_name]):
         return jsonify({"error": "Email, password, first name, and last name are required."}), 400
-    if len(password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters."}), 400
+    validation_error = password_error(password)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
 
     # ── ABN validation (optional for community members) ──────────────────────────
     if abn_raw:

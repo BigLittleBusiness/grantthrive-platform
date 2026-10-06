@@ -28,6 +28,7 @@ from app import db
 from app.models import Council, User
 from app.common.decorators import token_required, role_required
 from app.common.password import hash_password
+from app.common.password_policy import password_error
 logger = logging.getLogger(__name__)
 
 councils_bp = Blueprint('councils', __name__)
@@ -451,8 +452,9 @@ def provision_council_user(current_user, council_id):
     if role not in allowed_roles:
         return jsonify({'error': f'Invalid role. Must be one of: {", ".join(sorted(allowed_roles))}'}), 400
 
-    if len(password) < 10:
-        return jsonify({'error': 'Password must be at least 10 characters.'}), 400
+    validation_error = password_error(password)
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
 
     if User.query.filter_by(email=email).first():
         return jsonify({'error': f'A user with email "{email}" already exists.'}), 409
@@ -555,8 +557,9 @@ def start_trial():
         errors['last_name'] = 'Last name is required.'
     if not email or '@' not in email:
         errors['email'] = 'A valid email address is required.'
-    if len(password) < 10:
-        errors['password'] = 'Password must be at least 10 characters.'
+    validation_error = password_error(password)
+    if validation_error:
+        errors['password'] = validation_error
     plan_error = validate_plan_selection(intended_plan, billing_cycle)
     if plan_error:
         errors['plan'] = plan_error
@@ -687,8 +690,9 @@ def add_staff_member(current_user, council_id):
         return jsonify({'error': 'email, first_name, and last_name are required.'}), 400
     if role not in {'council_staff', 'council_admin'}:
         return jsonify({'error': 'Role must be council_staff or council_admin.'}), 400
-    if len(password) < 8:
-        return jsonify({'error': 'Password must be at least 8 characters.'}), 400
+    validation_error = password_error(password)
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({'error': f'A user with email "{email}" already exists.'}), 409
 
@@ -816,8 +820,9 @@ def reset_staff_password(current_user, council_id, user_id):
 
     data         = request.get_json(silent=True) or {}
     new_password = data.get('new_password') or ''
-    if len(new_password) < 8:
-        return jsonify({'error': 'Password must be at least 8 characters.'}), 400
+    validation_error = password_error(new_password)
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
 
     user.password_hash = _hash(new_password)
     db.session.commit()

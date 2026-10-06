@@ -56,6 +56,7 @@ from flask import request, jsonify, current_app
 from app import db, limiter
 from app.auth import bp
 from app.models import User, Council
+from app.common.password_policy import password_error
 
 logger = logging.getLogger(__name__)
 
@@ -152,10 +153,8 @@ def _validate_email(email: str) -> str | None:
 
 
 def _validate_password(password: str) -> str | None:
-    """Return error string if password is too weak, else None."""
-    if len(password) < 8:
-        return "Password must be at least 8 characters."
-    return None
+    """Return the shared password-strength error when the password is too weak."""
+    return password_error(password)
 
 
 def _generate_username(email: str) -> str:

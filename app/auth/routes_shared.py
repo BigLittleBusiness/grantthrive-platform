@@ -32,6 +32,7 @@ from app.auth.helpers import (
     JWT_ADMIN_REFRESH_MINS,
 )
 from app.common.password import hash_password, verify_password
+from app.common.password_policy import password_error
 
 logger = logging.getLogger(__name__)
 
@@ -246,8 +247,9 @@ def change_password(current_user):
     new_password = data.get("new_password") or ""
     if not current_password or not new_password:
         return jsonify({"error": "Current and new passwords are required."}), 400
-    if len(new_password) < 8:
-        return jsonify({"error": "New password must be at least 8 characters."}), 400
+    validation_error = password_error(new_password)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
     is_valid, _ = verify_password(current_user.password_hash, current_password)
     if not is_valid:
         return jsonify({"error": "Current password is incorrect."}), 401
@@ -304,8 +306,9 @@ def reset_password():
     new_password = data.get("new_password") or ""
     if not token or not new_password:
         return jsonify({"error": "Token and new password are required."}), 400
-    if len(new_password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters."}), 400
+    validation_error = password_error(new_password)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
     user = User.query.filter_by(reset_token=token).first()
     if not user:
         return jsonify({"error": "Invalid or expired reset token."}), 400
