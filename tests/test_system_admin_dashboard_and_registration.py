@@ -133,19 +133,22 @@ class SystemAdminDashboardAndRegistrationTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["code"], "council_email_required")
+        body = response.get_json()
+        self.assertEqual(body["code"], "council_email_required")
+        self.assertEqual(body["next_step"], "community_member_registration")
+        self.assertEqual(body["next_step_url"], "/portal/register?account=community_member")
         self.assertEqual(User.query.filter_by(username="jordan").count(), 0)
         send_guidance.assert_called_once_with("jordan@example.com", "Jordan")
 
     @patch("app.common.email_service.send_email", return_value=True)
-    def test_council_eligibility_email_uses_platform_subject_and_contact_form(self, send_email):
+    def test_council_eligibility_email_uses_platform_subject_and_community_registration(self, send_email):
         from app.common.email_service import send_council_registration_not_eligible
 
         self.assertTrue(send_council_registration_not_eligible("jordan@example.com", "Jordan"))
         args, _kwargs = send_email.call_args
         self.assertEqual(args[0], "jordan@example.com")
         self.assertEqual(args[1], "GrantThrive - Council account registration information")
-        self.assertIn("/contact", args[2])
+        self.assertIn("/portal/register?account=community_member", args[2])
         self.assertNotIn("mailto:", args[2])
 
 

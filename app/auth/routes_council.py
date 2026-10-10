@@ -106,6 +106,8 @@ def _register_council_user(data: dict):
                 "official .gov.au or .govt.nz email address. Please use your council email to register."
             ),
             "code": "council_email_required",
+            "next_step": "community_member_registration",
+            "next_step_url": "/portal/register?account=community_member",
         }), 400
 
     # ── Domain-uniqueness check ───────────────────────────────────────────────

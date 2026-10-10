@@ -177,8 +177,8 @@ def send_council_registration_not_eligible(to_email: str, first_name: str) -> bo
 
     This is sent only when a person deliberately submits the council onboarding
     form with a non-government address.  It does not create a user record and
-    it directs prospective customers to the protected contact form rather than
-    exposing a direct staff email address.
+    it directs grant applicants to the community-member registration journey
+    without exposing a direct staff email address.
     """
     safe_name = escape((first_name or '').strip()) or 'there'
     subject = 'GrantThrive - Council account registration information'
@@ -188,17 +188,17 @@ def send_council_registration_not_eligible(to_email: str, first_name: str) -> bo
 <p>GrantThrive's self-service council onboarding is reserved for authorised staff of Australian and New Zealand local government councils. We were unable to accept this council registration because it was not submitted with an official council email address.</p>
 <div class="info-box">
   <p><strong>Council staff:</strong> please register again using your council-issued <strong>.gov.au</strong> or <strong>.govt.nz</strong> email address.</p>
-  <p><strong>Grant applicants:</strong> create a community account from the relevant council's grant page when you are ready to apply.</p>
+  <p><strong>Grant applicants:</strong> create a community-member account to browse available grants and manage applications.</p>
 </div>
-<p>If you would like to discuss GrantThrive for your council or organisation, please use the secure contact form below.</p>
-<a href="{MARKETING_URL}/contact" class="cta-btn">Open the contact form &rarr;</a>
+<a href="{MARKETING_URL}/portal/register?account=community_member" class="cta-btn">Register as a community member &rarr;</a>
+<p>If you are a council staff member, please return to the council registration form using your official council email address.</p>
 <p><strong>The GrantThrive Team</strong></p>"""
     text = (
         f"Hi {(first_name or '').strip() or 'there'},\n\n"
         "Thank you for your interest in GrantThrive. Self-service council onboarding is reserved for authorised staff of Australian and New Zealand local government councils. We were unable to accept this council registration because it was not submitted with an official council email address.\n\n"
         "Council staff: please register again using your council-issued .gov.au or .govt.nz email address.\n"
-        "Grant applicants: create a community account from the relevant council's grant page when you are ready to apply.\n\n"
-        f"To discuss GrantThrive, use the secure contact form: {MARKETING_URL}/contact"
+        "Grant applicants: create a community-member account to browse available grants and manage applications.\n\n"
+        f"Register as a community member: {MARKETING_URL}/portal/register?account=community_member"
     )
     return send_email(to_email, subject, html, text)
 
