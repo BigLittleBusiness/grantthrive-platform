@@ -136,7 +136,10 @@ class SystemAdminDashboardAndRegistrationTests(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(body["code"], "council_email_required")
         self.assertEqual(body["next_step"], "community_member_registration")
-        self.assertEqual(body["next_step_url"], "/portal/register?account=community_member")
+        self.assertEqual(
+            body["next_step_url"],
+            "https://app.grantthrive.com/portal/register?account=community_member",
+        )
         self.assertEqual(User.query.filter_by(username="jordan").count(), 0)
         send_guidance.assert_called_once_with("jordan@example.com", "Jordan")
 

@@ -16,7 +16,7 @@ Endpoint:
         Alias: POST /register  (when user_type is council | council_admin | council_staff)
 """
 import logging
-from flask import request, jsonify, g
+from flask import current_app, request, jsonify, g
 
 from app import db, limiter
 from app.models import User
@@ -100,6 +100,10 @@ def _register_council_user(data: dict):
             email_service.send_council_registration_not_eligible(email, first_name)
         except Exception as exc:
             logger.warning("Council registration eligibility email failed: %s", exc)
+        community_registration_url = (
+            f"{current_app.config.get('FRONTEND_BASE_URL', 'https://app.grantthrive.com').rstrip('/')}"
+            "/portal/register?account=community_member"
+        )
         return jsonify({
             "error": (
                 "Council onboarding is available to authorised Australian and New Zealand council staff using an "
@@ -107,7 +111,7 @@ def _register_council_user(data: dict):
             ),
             "code": "council_email_required",
             "next_step": "community_member_registration",
-            "next_step_url": "/portal/register?account=community_member",
+            "next_step_url": community_registration_url,
         }), 400
 
     # ── Domain-uniqueness check ───────────────────────────────────────────────
