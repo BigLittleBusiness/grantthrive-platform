@@ -34,15 +34,11 @@ logger = logging.getLogger(__name__)
 # Accepted aliases that all map to the council_admin self-registration path
 COUNCIL_ALIASES = {"council", "council_admin", "council_staff"}
 
-# Government email domain suffixes accepted for council registration
+# Government email domain suffixes accepted for council registration.
+# Self-service onboarding is only for Australian and New Zealand councils.
 _GOVT_SUFFIXES = (
     ".gov.au",
     ".govt.nz",
-    ".gov.nz",
-    ".gov.uk",
-    ".gov",
-    ".edu.au",
-    ".edu.nz",
 )
 
 
@@ -96,11 +92,20 @@ def _register_council_user(data: dict):
 
     # ── Government domain check ───────────────────────────────────────────────
     if not _is_govt_email(email):
+        # Do not create an account or an approval-queue record for an
+        # ineligible council registration.  A best-effort transactional email
+        # makes the next step clear without exposing a direct support address.
+        try:
+            from app.common import email_service
+            email_service.send_council_registration_not_eligible(email, first_name)
+        except Exception as exc:
+            logger.warning("Council registration eligibility email failed: %s", exc)
         return jsonify({
             "error": (
-                "Council accounts require a government email address "
-                "(e.g. name@council.gov.au). Please use your official council email."
-            )
+                "Council onboarding is available to authorised Australian and New Zealand council staff using an "
+                "official .gov.au or .govt.nz email address. Please use your council email to register."
+            ),
+            "code": "council_email_required",
         }), 400
 
     # ── Domain-uniqueness check ───────────────────────────────────────────────

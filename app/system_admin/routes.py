@@ -12,6 +12,7 @@ GET    /api/system-admins/<id>         — Get a single system_admin user
 PATCH  /api/system-admins/<id>         — Update a system_admin user
 DELETE /api/system-admins/<id>         — Deactivate (soft-delete) a system_admin user
 POST   /api/system-admins/<id>/restore — Reactivate a deactivated system_admin user
+GET    /api/admin/dashboard            — Live platform overview and action items
 
 Security
 --------
@@ -400,6 +401,107 @@ def restore_system_admin(current_user, admin_id):
     return jsonify({
         "message": "System admin account reactivated.",
         "admin":   _admin_to_dict(user),
+    }), 200
+
+
+# ── Live System Administration Dashboard ────────────────────────────────────
+
+@bp.route('/admin/dashboard', methods=['GET'])
+@role_required('system_admin')
+def get_admin_dashboard(current_user):
+    """Return live, actionable administration data without fabricated metrics.
+
+    The dashboard intentionally reports only records stored in GrantThrive's
+    own database.  Infrastructure availability, revenue and third-party
+    integration health are not inferred here because this service does not
+    have an authoritative monitoring or accounting source for those values.
+    """
+    from datetime import timedelta
+    from app.models import Application, Council, Grant, PublicSubmission
+
+    now = datetime.now(timezone.utc)
+    trial_window_end = now + timedelta(days=7)
+
+    pending_council_registrations = User.query.filter_by(
+        role='council_admin', is_active=False, is_approved=False,
+    ).count()
+    new_form_submissions = PublicSubmission.query.filter_by(status='new').count()
+    failed_form_notifications = PublicSubmission.query.filter_by(
+        notification_status='failed',
+    ).count()
+    trials_ending_soon = Council.query.filter(
+        Council.is_active.is_(True),
+        Council.plan == 'trial',
+        Council.trial_ends_at.isnot(None),
+        Council.trial_ends_at >= now,
+        Council.trial_ends_at <= trial_window_end,
+    ).count()
+
+    alerts = []
+    if pending_council_registrations:
+        alerts.append({
+            'id': 'pending-council-registrations',
+            'severity': 'warning',
+            'title': 'Council registrations awaiting review',
+            'description': f"{pending_council_registrations} council registration{'' if pending_council_registrations == 1 else 's'} require approval or rejection.",
+            'tab': 'approvals',
+            'action_label': 'Review registrations',
+        })
+    if new_form_submissions:
+        alerts.append({
+            'id': 'new-form-submissions',
+            'severity': 'info',
+            'title': 'New web form submissions',
+            'description': f"{new_form_submissions} protected contact or waitlist record{'' if new_form_submissions == 1 else 's'} need handling.",
+            'tab': 'form-submissions',
+            'action_label': 'Review submissions',
+        })
+    if failed_form_notifications:
+        alerts.append({
+            'id': 'failed-form-notifications',
+            'severity': 'error',
+            'title': 'Form notification delivery needs checking',
+            'description': f"{failed_form_notifications} submission notification{'' if failed_form_notifications == 1 else 's'} did not send. The protected database record remains available.",
+            'tab': 'form-submissions',
+            'action_label': 'Review records',
+        })
+    if trials_ending_soon:
+        alerts.append({
+            'id': 'expiring-trials',
+            'severity': 'warning',
+            'title': 'Council trials ending within seven days',
+            'description': f"{trials_ending_soon} active trial{'' if trials_ending_soon == 1 else 's'} end within the next seven days.",
+            'tab': 'councils',
+            'action_label': 'Review councils',
+        })
+
+    recent_users = (
+        User.query
+        .order_by(User.last_login.desc(), User.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    return jsonify({
+        'generated_at': now.isoformat(),
+        'stats': {
+            'active_users': User.query.filter_by(is_active=True).count(),
+            'active_councils': Council.query.filter_by(is_active=True).count(),
+            'total_grants': Grant.query.count(),
+            'submitted_applications': Application.query.filter(Application.status != 'draft').count(),
+        },
+        'alerts': alerts,
+        'recent_users': [
+            {
+                'id': user.id,
+                'full_name': user.full_name,
+                'role': user.role,
+                'is_active': user.is_active,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+                'last_login': user.last_login.isoformat() if user.last_login else None,
+                'council_name': user.council.name if user.council else None,
+            }
+            for user in recent_users
+        ],
     }), 200
 
 
