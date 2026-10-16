@@ -73,3 +73,10 @@ def run_monthly_reports_command(dry_run, output_dir):
 
     if failed:
         raise SystemExit(1)
+
+
+@app.cli.command("run-scheduler")
+def run_scheduler_command():
+    """Run the singleton scheduled-job service (managed by systemd in production)."""
+    from app.common.scheduled_jobs import run_scheduler
+    run_scheduler(app)

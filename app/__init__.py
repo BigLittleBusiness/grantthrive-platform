@@ -122,9 +122,7 @@ def create_app(config_class=Config):
             return None
         return resolve_tenant()
 
-    # ── Scheduler ──────────────────────────────
-    if not app.testing and os.environ.get("WERKZEUG_RUN_MAIN") != "false":
-        from app.common.scheduled_jobs import init_scheduler
-        init_scheduler(app)
+    # Scheduled work runs in the dedicated grantthrive-scheduler systemd service.
+    # Never start APScheduler in a Gunicorn worker: scale-out would duplicate jobs.
 
     return app

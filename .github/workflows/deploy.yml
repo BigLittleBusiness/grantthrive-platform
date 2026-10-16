@@ -2,19 +2,55 @@ name: Deploy Backend
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+
+permissions:
+  contents: read
 
 jobs:
-  deploy:
+  validate:
+    name: Security and migration gates
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: '3.11'
+      - name: Install locked dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pytest
+      - name: Run security regression tests
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests/test_security_remediation.py tests/test_contact_forms.py tests/test_datetime_utils.py tests/test_system_admin_dashboard_and_registration.py
+      - name: Check dependency advisories
+        run: pip install pip-audit && pip-audit -r requirements.txt --strict
+      - name: Validate migration graph
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          revisions = {}
+          for path in Path('migrations/versions').glob('*.py'):
+              tree = ast.parse(path.read_text())
+              values = {node.targets[0].id: ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id in {'revision', 'down_revision'}}
+              if 'revision' in values: revisions[values['revision']] = values.get('down_revision')
+          heads = set(revisions) - {value for value in revisions.values() if value}
+          assert len(heads) == 1, f'Expected one migration head, found: {heads}'
+          print(f'Migration head: {next(iter(heads))}')
+          PY
 
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.0
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         env:
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
           ADMIN_NOTIFICATION_EMAIL: ${{ secrets.ADMIN_NOTIFICATION_EMAIL }}
@@ -25,8 +61,7 @@ jobs:
           port: 22
           envs: TURNSTILE_SECRET_KEY,ADMIN_NOTIFICATION_EMAIL
           script: |
-            set -e
-
+            set -euo pipefail
             cd ${{ secrets.VPS_PROJECT_PATH }}
             git fetch origin
             git checkout master
@@ -34,7 +69,6 @@ jobs:
             python3 - <<'PY'
             import os
             from pathlib import Path
-
             path = Path('.env')
             existing = path.read_text(encoding='utf-8').splitlines() if path.exists() else []
             updates = {
@@ -44,33 +78,24 @@ jobs:
                 'ADMIN_DASHBOARD_URL': 'https://admin.grantthrive.com/admin/dashboard?tab=form-submissions',
                 'PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED': 'true',
             }
-            output = []
-            seen = set()
+            output, seen = [], set()
             for line in existing:
                 key = line.split('=', 1)[0].strip() if '=' in line and not line.lstrip().startswith('#') else None
                 if key in updates:
-                    output.append(f'{key}={updates[key]}')
-                    seen.add(key)
-                else:
-                    output.append(line)
-            for key, value in updates.items():
-                if key not in seen:
-                    output.append(f'{key}={value}')
+                    output.append(f'{key}={updates[key]}'); seen.add(key)
+                else: output.append(line)
+            output.extend(f'{key}={value}' for key, value in updates.items() if key not in seen)
             path.write_text('\n'.join(output).rstrip() + '\n', encoding='utf-8')
             PY
             chmod 600 .env
-
-            if [[ ! -d venv ]]; then
-              python3 -m venv venv
-            fi
+            [[ -d venv ]] || python3 -m venv venv
             venv/bin/pip install --quiet -r requirements.txt
-
-            set -a
-            source .env
-            set +a
+            set -a; source .env; set +a
             export FLASK_APP=wsgi:app FLASK_ENV=production
             venv/bin/flask db upgrade
-
+            sudo install -m 0644 deploy/grantthrive-scheduler.service /etc/systemd/system/grantthrive-scheduler.service
+            sudo sed -i "s|GRANTTHRIVE_SERVICE_USER|$(id -un)|g; s|GRANTTHRIVE_PROJECT_PATH|$(pwd)|g" /etc/systemd/system/grantthrive-scheduler.service
+            sudo systemctl daemon-reload
             sudo systemctl restart grantthrive-api
-
-            echo "Deployment completed successfully"
+            sudo systemctl enable --now grantthrive-scheduler
+            echo 'Deployment completed successfully'

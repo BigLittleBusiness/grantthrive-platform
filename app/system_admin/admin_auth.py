@@ -11,8 +11,8 @@ route so that:
      role attempting to use this endpoint receives a 403, not a 401,
      to avoid leaking whether the credentials were valid.
   3. Audit logging is more granular (action = "admin_login").
-  4. Future MFA or IP-allowlist controls can be applied here without
-     affecting the council portal login flow.
+  4. Authenticator-app MFA is enforced here without affecting the council
+     portal login flow; future IP allow-list controls can use the same boundary.
 
 Endpoints
 ---------
@@ -38,6 +38,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import pyotp
 from flask import request, jsonify, current_app
 
 from app import db, limiter
@@ -88,8 +89,8 @@ def _admin_token_required(f):
         except jwt.InvalidTokenError:
             return jsonify({"error": "Invalid token."}), 401
 
-        # Enforce admin scope — reject portal tokens used against admin endpoints
-        if payload.get("role") != "system_admin":
+        # Enforce dedicated admin scope — reject general portal tokens here.
+        if payload.get("role") != "system_admin" or payload.get("scope") != "admin":
             return jsonify({"error": "Admin access required."}), 403
 
         user = db.session.get(User, int(payload["sub"]))
@@ -115,6 +116,7 @@ def _admin_profile(user: User) -> dict:
         "is_active":  user.is_active,
         "last_login": user.last_login.isoformat() if user.last_login else None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        "mfa_enabled": bool(user.mfa_enabled),
     }
 
 
@@ -136,6 +138,53 @@ def _lookup_admin_by_email(email: str) -> User | None:
         "Set FIELD_HMAC_KEY in production."
     )
     return User.query.filter_by(email=email, role="system_admin").first()
+
+
+def _valid_totp(user: User, code: str) -> bool:
+    return bool(user.mfa_secret and code and code.isdigit() and pyotp.TOTP(user.mfa_secret).verify(code, valid_window=1))
+
+
+@bp.route("/admin/mfa/status", methods=["GET"])
+@_admin_token_required
+def admin_mfa_status(current_user: User):
+    return jsonify({"mfa_enabled": bool(current_user.mfa_enabled), "enrolled_at": current_user.mfa_enrolled_at.isoformat() if current_user.mfa_enrolled_at else None})
+
+
+@bp.route("/admin/mfa/setup", methods=["POST"])
+@_admin_token_required
+def admin_mfa_setup(current_user: User):
+    secret = current_user.mfa_secret or pyotp.random_base32()
+    current_user.mfa_secret = secret
+    current_user.mfa_enabled = False
+    db.session.commit()
+    return jsonify({"secret": secret, "issuer": "GrantThrive", "account": current_user.email})
+
+
+@bp.route("/admin/mfa/confirm", methods=["POST"])
+@_admin_token_required
+def admin_mfa_confirm(current_user: User):
+    code = ((request.get_json(silent=True) or {}).get("code") or "").replace(" ", "")
+    if not _valid_totp(current_user, code):
+        return jsonify({"error": "Enter a valid authenticator code."}), 400
+    current_user.mfa_enabled = True
+    current_user.mfa_enrolled_at = datetime.now(timezone.utc)
+    db.session.commit()
+    _write_audit_log(current_user.id, "admin_mfa_enabled", "Authenticator MFA enabled")
+    return jsonify({"message": "Authenticator MFA enabled.", "mfa_enabled": True})
+
+
+@bp.route("/admin/mfa/disable", methods=["POST"])
+@_admin_token_required
+def admin_mfa_disable(current_user: User):
+    code = ((request.get_json(silent=True) or {}).get("code") or "").replace(" ", "")
+    if not current_user.mfa_enabled or not _valid_totp(current_user, code):
+        return jsonify({"error": "A valid authenticator code is required."}), 400
+    current_user.mfa_secret = None
+    current_user.mfa_enabled = False
+    current_user.mfa_enrolled_at = None
+    db.session.commit()
+    _write_audit_log(current_user.id, "admin_mfa_disabled", "Authenticator MFA disabled")
+    return jsonify({"message": "Authenticator MFA disabled.", "mfa_enabled": False})
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -174,6 +223,7 @@ def admin_login():
     data     = request.get_json(silent=True) or {}
     email    = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
+    mfa_code = (data.get("mfa_code") or "").replace(" ", "")
 
     if not email or not password:
         return jsonify({"error": "Email and password are required."}), 400
@@ -228,6 +278,12 @@ def admin_login():
             details="Account inactive",
         )
         return jsonify({"error": "Your admin account has been deactivated."}), 403
+
+    # A system administrator with MFA enrolled must satisfy a current TOTP code.
+    if user.mfa_enabled:
+        if not mfa_code or not mfa_code.isdigit() or not pyotp.TOTP(user.mfa_secret).verify(mfa_code, valid_window=1):
+            _write_audit_log(user_id=user.id, action="admin_login_mfa_failed", details="Missing or invalid MFA code")
+            return jsonify({"error": "A valid authenticator code is required.", "mfa_required": True}), 401
 
     # Transparently rehash legacy or outdated hashes
     if needs_rehash:

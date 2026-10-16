@@ -1,0 +1,22 @@
+[Unit]
+Description=GrantThrive scheduled jobs
+After=network.target grantthrive-api.service
+
+[Service]
+Type=simple
+User=GRANTTHRIVE_SERVICE_USER
+WorkingDirectory=GRANTTHRIVE_PROJECT_PATH
+EnvironmentFile=GRANTTHRIVE_PROJECT_PATH/.env
+Environment=FLASK_APP=wsgi:app
+Environment=FLASK_ENV=production
+ExecStart=GRANTTHRIVE_PROJECT_PATH/venv/bin/flask run-scheduler
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=GRANTTHRIVE_PROJECT_PATH/reports_output GRANTTHRIVE_PROJECT_PATH/logs
+
+[Install]
+WantedBy=multi-user.target

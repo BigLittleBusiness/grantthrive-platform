@@ -105,10 +105,10 @@ def list_applications(current_user):
     if current_user.role == "system_admin":
         pass
     elif current_user.role in ("council_admin", "council_staff"):
-        council_grant_ids = [
-            g.id for g in Grant.query.filter_by(council_id=current_user.council_id).all()
-        ]
-        query = query.filter(Application.grant_id.in_(council_grant_ids))
+        # Tenant filter is performed in SQL, avoiding an unbounded ID list.
+        query = query.join(Grant, Grant.id == Application.grant_id).filter(
+            Grant.council_id == current_user.council_id
+        )
     else:
         query = query.filter_by(applicant_id=current_user.id)
 
@@ -161,6 +161,10 @@ def create_application(current_user):
 
     grant = db.session.get(Grant, data["grant_id"])
     if not grant:
+        return jsonify({"error": "Grant not found."}), 404
+    # A community account may only create applications inside its own council tenant.
+    # Return 404 rather than exposing a valid grant across a tenant boundary.
+    if current_user.role != "system_admin" and grant.council_id != current_user.council_id:
         return jsonify({"error": "Grant not found."}), 404
     if not grant.is_open:
         return jsonify({"error": "This grant is not currently accepting applications."}), 409
@@ -546,49 +550,40 @@ def list_pending_approvals(current_user):
     For council_staff: returns applications assigned to them plus unassigned ones.
     For council_admin: returns all pending applications for the council.
     """
-    council_grant_ids = [
-        g.id for g in Grant.query.filter_by(council_id=current_user.council_id).all()
-    ]
-
-    query = Application.query.filter(
-        Application.grant_id.in_(council_grant_ids),
-        Application.status.in_(["submitted", "under_review"]),
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    per_page = min(max(request.args.get("per_page", 50, type=int) or 50, 1), 100)
+    pagination = (
+        Application.query.join(Grant, Grant.id == Application.grant_id)
+        .filter(
+            Grant.council_id == current_user.council_id,
+            Application.status.in_(["submitted", "under_review"]),
+        )
+        .order_by(Application.submitted_at.asc())
+        .paginate(page=page, per_page=per_page, error_out=False)
     )
-
-    apps = query.order_by(Application.submitted_at.asc()).all()
+    apps = pagination.items
+    app_ids = [app.id for app in apps]
+    assignments_by_app = {app_id: [] for app_id in app_ids}
+    assignments = ApplicationAssignment.query.filter(ApplicationAssignment.application_id.in_(app_ids)).all() if app_ids else []
+    staff_by_id = {user.id: user for user in User.query.filter(User.id.in_({assignment.staff_id for assignment in assignments})).all()} if assignments else {}
+    review_counts = dict(db.session.query(Review.application_id, db.func.count(Review.id)).filter(Review.application_id.in_(app_ids), Review.is_complete.is_(True)).group_by(Review.application_id).all()) if app_ids else {}
+    for assignment in assignments:
+        assignments_by_app[assignment.application_id].append(assignment)
 
     result = []
     for app in apps:
-        assignments = ApplicationAssignment.query.filter_by(application_id=app.id).all()
-        assigned_staff = []
-        for a in assignments:
-            staff = db.session.get(User, a.staff_id)
-            if staff:
-                assigned_staff.append({
-                    "user_id": a.staff_id,
-                    "name": staff.full_name,
-                    "status": a.status,
-                    "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
-                })
-
-        my_assignment = next(
-            (a for a in assignments if a.staff_id == current_user.id), None
-        )
-
-        grant = db.session.get(Grant, app.grant_id)
+        app_assignments = assignments_by_app[app.id]
+        my_assignment = next((assignment for assignment in app_assignments if assignment.staff_id == current_user.id), None)
         d = _app_to_dict(app)
         d.update({
-            "grant_title": grant.title if grant else None,
-            "assigned_staff": assigned_staff,
-            "my_assignment": {
-                "status": my_assignment.status,
-                "notes": my_assignment.notes,
-            } if my_assignment else None,
-            "review_count": app.reviews.filter_by(is_complete=True).count(),
+            "grant_title": app.grant.title if app.grant else None,
+            "assigned_staff": [{"user_id": assignment.staff_id, "name": staff_by_id[assignment.staff_id].full_name, "status": assignment.status, "assigned_at": assignment.assigned_at.isoformat() if assignment.assigned_at else None} for assignment in app_assignments if assignment.staff_id in staff_by_id],
+            "my_assignment": {"status": my_assignment.status, "notes": my_assignment.notes} if my_assignment else None,
+            "review_count": review_counts.get(app.id, 0),
         })
         result.append(d)
 
-    return jsonify({"applications": result, "total": len(result)}), 200
+    return jsonify({"applications": result, "total": pagination.total, "page": pagination.page, "per_page": pagination.per_page, "total_pages": pagination.pages}), 200
 
 
 @bp.route("/<int:app_id>/assign", methods=["POST"])

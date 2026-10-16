@@ -191,6 +191,10 @@ class User(db.Model):
     reset_token_expiry = db.Column(db.DateTime, nullable=True)
     # Email preferences (opt-in for broadcast emails; transactional emails always sent)
     email_opt_in       = db.Column(db.Boolean, default=True, nullable=False)
+    # TOTP secret is encrypted at rest; only privileged system-admin accounts use MFA.
+    mfa_secret          = db.Column(EncryptedString(200), nullable=True)
+    mfa_enabled         = db.Column(db.Boolean, default=False, nullable=False)
+    mfa_enrolled_at     = db.Column(db.DateTime, nullable=True)
 
     # Relationships
     created_grants = db.relationship('Grant', foreign_keys='Grant.created_by',

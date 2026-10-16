@@ -11,7 +11,7 @@ class ContactFormsTestingConfig(TestingConfig):
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {}
-    SECRET_KEY = "contact-form-test-secret"
+    SECRET_KEY = "contact-form-test-secret-at-least-32-bytes"
     TURNSTILE_TEST_BYPASS = True
     PUBLIC_SUBMISSION_ENCRYPTION_REQUIRED = False
     ADMIN_NOTIFICATION_EMAIL = "admin@example.invalid"

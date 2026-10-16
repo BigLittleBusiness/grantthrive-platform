@@ -82,7 +82,7 @@ def list_forums(current_user):
     if role == 'community_member':
         q = q.filter_by(is_public=True)
 
-    forums = q.order_by(Forum.created_at.desc()).all()
+    forums = q.order_by(Forum.created_at.desc()).limit(100).all()
     return jsonify({
         'forums': [_forum_to_dict(f, current_user) for f in forums],
         'total':  len(forums),
@@ -278,6 +278,9 @@ def update_post(current_user, forum_id, post_id):
     post = db.session.get(ForumPost, post_id)
     if not post or post.forum_id != forum_id:
         return jsonify({'error': 'Post not found.'}), 404
+    forum = db.session.get(Forum, post.forum_id)
+    if not forum or forum.council_id != current_user.council_id:
+        return jsonify({'error': 'Post not found.'}), 404
 
     is_author = post.author_id == current_user.id
     is_admin  = current_user.role == 'council_admin'
@@ -304,6 +307,9 @@ def delete_post(current_user, forum_id, post_id):
     """Delete a post. Author or council_admin only."""
     post = db.session.get(ForumPost, post_id)
     if not post or post.forum_id != forum_id:
+        return jsonify({'error': 'Post not found.'}), 404
+    forum = db.session.get(Forum, post.forum_id)
+    if not forum or forum.council_id != current_user.council_id:
         return jsonify({'error': 'Post not found.'}), 404
 
     is_author = post.author_id == current_user.id
