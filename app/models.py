@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import os
+from urllib.parse import quote
 from app.common.password import hash_password, verify_password
 from app.common.encryption import EncryptedString, hmac_index
 from sqlalchemy import Numeric
@@ -22,9 +24,9 @@ class Council(db.Model):
     A council is the top-level tenant in GrantThrive.
 
     Every grant, user, voting session, and audit log belongs to exactly one
-    council.  The ``subdomain`` field drives the URL routing:
-
-        cityofmelbourne.grantthrive.com  →  Council(subdomain='cityofmelbourne')
+    council.  The ``subdomain`` field is the council's stable tenant identifier.
+    It selects council branding in the shared portal without requiring a DNS
+    record and TLS certificate for every customer tenant.
 
     The system_admin role (GrantThrive staff) is NOT scoped to any council
     (council_id = NULL on their User record).
@@ -106,8 +108,15 @@ class Council(db.Model):
         return Council.make_subdomain(name)
 
     def portal_url(self, scheme: str = 'https') -> str:
-        """Return the full portal URL for this council."""
-        return f"{scheme}://{self.subdomain}.grantthrive.com"
+        """Return the canonical, DNS-independent portal URL for this council.
+
+        ``subdomain`` remains the tenant identifier, but customer links use the
+        shared portal host so a newly provisioned council is immediately
+        reachable without a separate DNS and certificate provisioning step.
+        ``scheme`` is retained for backwards-compatible local/test callers.
+        """
+        base_url = os.environ.get("FRONTEND_BASE_URL", f"{scheme}://app.grantthrive.com").rstrip("/")
+        return f"{base_url}/portal/login/?tenant={quote(self.subdomain, safe='')}"
 
     def to_dict(self) -> dict:
         """Serialise to a safe dict for API responses."""
