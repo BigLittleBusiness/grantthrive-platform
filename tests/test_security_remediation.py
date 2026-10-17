@@ -29,6 +29,7 @@ class SecurityRemediationTests(unittest.TestCase):
         db.session.flush()
         self.applicant_a = self._user("applicant-a", "applicant.a@example.invalid", "community_member", self.council_a.id)
         self.applicant_b = self._user("applicant-b", "applicant.b@example.invalid", "community_member", self.council_b.id)
+        self.applicant_peer_a = self._user("applicant-peer-a", "applicant.peer.a@example.invalid", "community_member", self.council_a.id)
         self.staff_a = self._user("staff-a", "staff.a@example.invalid", "council_staff", self.council_a.id)
         self.council_admin_a = self._user("council-admin-a", "council.admin.a@example.invalid", "council_admin", self.council_a.id)
         self.admin = self._user("admin", "admin@example.invalid", "system_admin", None)
@@ -56,10 +57,171 @@ class SecurityRemediationTests(unittest.TestCase):
     def _headers(self, user):
         return {"Authorization": f"Bearer {_generate_token(user)}"}
 
+    def _application_payload(self, form_data=None):
+        payload = {
+            "grant_id": self.grant_a.id,
+            "organization_name": "Alpha applicant",
+            "project_title": "Form data project",
+            "project_description": "A complete application description.",
+            "amount_requested": 100,
+            "contact_person": "Example Person",
+            "contact_email": "person@example.invalid",
+        }
+        if form_data is not None:
+            payload["form_data"] = form_data
+        return payload
+
+    def _create_application(self, form_data=None):
+        response = self.client.post(
+            "/api/applications",
+            headers=self._headers(self.applicant_a),
+            json=self._application_payload(form_data),
+        )
+        self.assertEqual(response.status_code, 201)
+        return response
+
     def test_cross_tenant_application_create_is_rejected(self):
         response = self.client.post("/api/applications", headers=self._headers(self.applicant_a), json={"grant_id": self.grant_b.id, "organization_name": "Alpha applicant", "project_title": "Cross tenant", "project_description": "Must fail", "amount_requested": 100, "contact_person": "Example", "contact_email": "person@example.invalid"})
         self.assertEqual(response.status_code, 404)
         self.assertEqual(Application.query.count(), 0)
+
+    def test_application_form_data_round_trips_in_detail_but_not_listing(self):
+        initial_form_data = {
+            "currentStep": 3,
+            "projectPlan": {"beneficiaries": 50},
+            "declarationAccepted": False,
+        }
+        created = self._create_application(initial_form_data)
+        application_id = created.get_json()["id"]
+        self.assertEqual(created.get_json()["form_data"], initial_form_data)
+        encrypted_value = db.session.execute(
+            db.text("SELECT form_data FROM applications WHERE id = :id"),
+            {"id": application_id},
+        ).scalar_one()
+        self.assertNotIn('"currentStep":3', encrypted_value)
+
+        updated_form_data = {
+            "currentStep": 6,
+            "projectPlan": {"beneficiaries": 75},
+            "privacyAccepted": True,
+        }
+        updated = self.client.patch(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_a),
+            json={"form_data": updated_form_data},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.get_json()["form_data"], updated_form_data)
+
+        detail = self.client.get(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_a),
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.get_json()["form_data"], updated_form_data)
+
+        listing = self.client.get("/api/applications", headers=self._headers(self.applicant_a))
+        self.assertEqual(listing.status_code, 200)
+        self.assertNotIn("form_data", listing.get_json()["applications"][0])
+
+    def test_only_draft_owner_may_patch_application_form_data(self):
+        created = self._create_application({"currentStep": 2})
+        application_id = created.get_json()["id"]
+
+        other_user_update = self.client.patch(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_peer_a),
+            json={"form_data": {"currentStep": 4}},
+        )
+        self.assertEqual(other_user_update.status_code, 403)
+
+        declarations = {
+            "declarationAccepted": True,
+            "privacyAccepted": True,
+            "termsAccepted": True,
+        }
+        owner_update = self.client.patch(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_a),
+            json={"form_data": declarations},
+        )
+        self.assertEqual(owner_update.status_code, 200)
+
+        with patch("app.common.notifications.notify"):
+            submitted = self.client.post(
+                f"/api/applications/{application_id}/submit",
+                headers=self._headers(self.applicant_a),
+            )
+        self.assertEqual(submitted.status_code, 200)
+
+        submitted_owner_update = self.client.patch(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_a),
+            json={"form_data": {"currentStep": 7}},
+        )
+        self.assertEqual(submitted_owner_update.status_code, 409)
+
+    def test_application_submit_requires_all_form_data_declarations(self):
+        created = self._create_application({
+            "declarationAccepted": True,
+            "privacyAccepted": True,
+            "termsAccepted": False,
+        })
+        application_id = created.get_json()["id"]
+
+        blocked = self.client.post(
+            f"/api/applications/{application_id}/submit",
+            headers=self._headers(self.applicant_a),
+        )
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn("declarations", blocked.get_json()["error"].lower())
+        self.assertEqual(db.session.get(Application, application_id).status, "draft")
+
+        declarations = {
+            "declarationAccepted": True,
+            "privacyAccepted": True,
+            "termsAccepted": True,
+        }
+        self.assertEqual(self.client.patch(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_a),
+            json={"form_data": declarations},
+        ).status_code, 200)
+        with patch("app.common.notifications.notify"):
+            submitted = self.client.post(
+                f"/api/applications/{application_id}/submit",
+                headers=self._headers(self.applicant_a),
+            )
+        self.assertEqual(submitted.status_code, 200)
+
+    def test_application_form_data_rejects_non_object_and_oversized_values(self):
+        non_object = self.client.post(
+            "/api/applications",
+            headers=self._headers(self.applicant_a),
+            json=self._application_payload(["not", "an", "object"]),
+        )
+        self.assertEqual(non_object.status_code, 400)
+
+        oversized = self.client.post(
+            "/api/applications",
+            headers=self._headers(self.applicant_a),
+            json=self._application_payload({"notes": "x" * (48 * 1024)}),
+        )
+        self.assertEqual(oversized.status_code, 400)
+
+    def test_invalid_stored_application_form_data_returns_empty_object(self):
+        created = self._create_application({"currentStep": 2})
+        application_id = created.get_json()["id"]
+        application = db.session.get(Application, application_id)
+        application.form_data = "not a JSON object"
+        db.session.commit()
+
+        detail = self.client.get(
+            f"/api/applications/{application_id}",
+            headers=self._headers(self.applicant_a),
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.get_json()["form_data"], {})
 
     def test_cross_tenant_forum_post_edit_is_rejected(self):
         forum = Forum(council_id=self.council_a.id, title="Alpha forum", created_by=self.staff_a.id)

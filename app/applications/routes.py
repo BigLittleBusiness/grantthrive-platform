@@ -41,8 +41,46 @@ from app.common.permissions import permission_required, has_permission
 
 logger = logging.getLogger(__name__)
 
+_MAX_FORM_DATA_BYTES = 48 * 1024
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _serialize_form_data(value) -> str:
+    """Validate and serialize a form draft as a bounded JSON object."""
+    if not isinstance(value, dict):
+        raise ValueError("form_data must be a JSON object.")
+    try:
+        serialized = json.dumps(
+            value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("form_data must contain only JSON-compatible values.") from exc
+    if len(serialized.encode("utf-8")) > _MAX_FORM_DATA_BYTES:
+        raise ValueError("form_data must not exceed 48 KB when serialized.")
+    return serialized
+
+
+def _decode_form_data(value) -> dict:
+    """Return a safe object for stored form data, treating bad data as empty."""
+    if not value:
+        return {}
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError):
+        logger.warning("Application form_data was invalid JSON; returning empty form data.")
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _stored_form_data(app: Application) -> dict:
+    """Safely read the encrypted draft, including values corrupted at rest."""
+    try:
+        return _decode_form_data(app.form_data)
+    except ValueError:
+        logger.warning("Application form_data could not be decrypted; returning empty form data.")
+        return {}
+
 
 def _app_to_dict(app: Application, detail: bool = False) -> dict:
     d = {
@@ -73,6 +111,7 @@ def _app_to_dict(app: Application, detail: bool = False) -> dict:
             "community_votes":     app.community_votes,
             "community_score":     app.community_score,
             "updated_at":          app.updated_at.isoformat() if app.updated_at else None,
+            "form_data":           _stored_form_data(app),
         })
     return d
 
@@ -176,6 +215,11 @@ def create_application(current_user):
         if existing:
             return jsonify({"error": "You have already applied for this grant."}), 409
 
+    try:
+        form_data = _serialize_form_data(data["form_data"]) if "form_data" in data else None
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     application = Application(
         grant_id            = grant.id,
         applicant_id        = current_user.id,
@@ -190,6 +234,7 @@ def create_application(current_user):
         postcode            = data.get("postcode"),
         latitude            = data.get("latitude"),
         longitude           = data.get("longitude"),
+        form_data           = form_data,
         status              = "draft",
     )
     db.session.add(application)
@@ -213,6 +258,14 @@ def update_application(current_user, app_id):
         return jsonify({"error": "Only draft applications can be edited."}), 409
 
     data = request.get_json(silent=True) or {}
+    if "form_data" in data:
+        if application.applicant_id != current_user.id:
+            return jsonify({"error": "Only the application owner may update form data."}), 403
+        try:
+            application.form_data = _serialize_form_data(data["form_data"])
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     updatable = [
         "organization_name", "project_title", "project_description",
         "amount_requested", "contact_person", "contact_email",
@@ -260,6 +313,11 @@ def submit_application(current_user, app_id):
     grant = db.session.get(Grant, application.grant_id)
     if not grant or not grant.is_open:
         return jsonify({"error": "The grant is no longer accepting applications."}), 409
+
+    form_data = _stored_form_data(application)
+    declaration_fields = ("declarationAccepted", "privacyAccepted", "termsAccepted")
+    if not all(form_data.get(field) is True for field in declaration_fields):
+        return jsonify({"error": "All required declarations must be accepted before submitting."}), 400
 
     application.status       = "submitted"
     application.submitted_at = datetime.now(timezone.utc)

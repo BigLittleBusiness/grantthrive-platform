@@ -397,6 +397,10 @@ class Application(db.Model):
     latitude  = db.Column(db.Float)
     longitude = db.Column(db.Float)
 
+    # Seven-step application form draft.  The 70 KB ciphertext allocation
+    # accommodates a 48 KB UTF-8 JSON payload plus AES-GCM/base64 overhead.
+    form_data = db.Column(EncryptedString(70000), nullable=True)
+
     status       = db.Column(db.String(20), default='draft')
     submitted_at = db.Column(db.DateTime)
     reviewed_at  = db.Column(db.DateTime)
