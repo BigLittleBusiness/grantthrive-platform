@@ -30,6 +30,7 @@ class SecurityRemediationTests(unittest.TestCase):
         self.applicant_a = self._user("applicant-a", "applicant.a@example.invalid", "community_member", self.council_a.id)
         self.applicant_b = self._user("applicant-b", "applicant.b@example.invalid", "community_member", self.council_b.id)
         self.staff_a = self._user("staff-a", "staff.a@example.invalid", "council_staff", self.council_a.id)
+        self.council_admin_a = self._user("council-admin-a", "council.admin.a@example.invalid", "council_admin", self.council_a.id)
         self.admin = self._user("admin", "admin@example.invalid", "system_admin", None)
         self.grant_a = self._grant(self.council_a, self.staff_a)
         self.grant_b = self._grant(self.council_b, self.applicant_b)
@@ -81,6 +82,62 @@ class SecurityRemediationTests(unittest.TestCase):
         self.assertEqual(collection.get_json()["features"], [])
         impact = self.client.get(f"/api/mapping/grant-impact/{self.grant_a.id}")
         self.assertEqual(impact.status_code, 404)
+
+    def test_map_requires_explicit_grant_display_consent_and_respects_council_filter(self):
+        self.grant_a.latitude = -37.81
+        self.grant_a.longitude = 144.96
+        self.grant_a.location_name = "Alpha precinct"
+        self.grant_a.enable_mapping = False
+        db.session.commit()
+
+        self.assertEqual(self.client.get("/api/mapping/grants-geojson").get_json()["features"], [])
+        self.assertEqual(self.client.get(f"/api/mapping/grant-impact/{self.grant_a.id}").status_code, 404)
+
+        self.grant_a.enable_mapping = True
+        db.session.commit()
+        collection = self.client.get(f"/api/mapping/grants-geojson?council_id={self.council_a.id}")
+        self.assertEqual(collection.status_code, 200)
+        features = collection.get_json()["features"]
+        self.assertEqual(len(features), 1)
+        self.assertEqual(features[0]["properties"]["id"], self.grant_a.id)
+        self.assertEqual(features[0]["properties"]["location_name"], "Alpha precinct")
+
+    def test_grant_map_location_is_validated_only_when_map_display_is_enabled(self):
+        self.council_a.plan = "medium"
+        db.session.commit()
+        payload = {
+            "title": "New Alpha Grant",
+            "description": "A test grant",
+            "category": "Community",
+            "total_budget": 1000,
+            "opens_at": "2026-10-01T00:00:00Z",
+            "closes_at": "2026-12-01T00:00:00Z",
+        }
+
+        mapping_off = self.client.post("/api/grants", headers=self._headers(self.council_admin_a), json=payload)
+        self.assertEqual(mapping_off.status_code, 201)
+        created_id = mapping_off.get_json()["id"]
+
+        mapping_on_without_location = self.client.patch(
+            f"/api/grants/{created_id}",
+            headers=self._headers(self.council_admin_a),
+            json={"enable_mapping": True},
+        )
+        self.assertEqual(mapping_on_without_location.status_code, 400)
+        self.assertIn("public location name", mapping_on_without_location.get_json()["error"].lower())
+
+        mapping_on_with_location = self.client.patch(
+            f"/api/grants/{created_id}",
+            headers=self._headers(self.council_admin_a),
+            json={
+                "enable_mapping": True,
+                "location_name": "Alpha civic precinct",
+                "latitude": -37.81,
+                "longitude": 144.96,
+            },
+        )
+        self.assertEqual(mapping_on_with_location.status_code, 200)
+        self.assertTrue(mapping_on_with_location.get_json()["enable_mapping"])
 
     def test_registration_required_vote_needs_authenticated_community_user(self):
         session = VotingSession(grant_id=self.grant_a.id, council_id=self.council_a.id, title="Voting", starts_at=datetime.now(timezone.utc)-timedelta(hours=1), ends_at=datetime.now(timezone.utc)+timedelta(hours=1), is_active=True, is_published=True, require_registration=True, created_by=self.staff_a.id)

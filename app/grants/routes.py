@@ -122,6 +122,29 @@ def _validate_reviewer_ids(raw_ids, council_id: int) -> list:
     return [row.id for row in valid]
 
 
+def _validate_public_map_location(enabled, location_name, latitude, longitude):
+    """Return normalised public map fields or raise ValueError.
+
+    Map display is opt-in. When it is enabled, coordinates and the public
+    location label must be suitable for display to unauthenticated visitors.
+    """
+    if not enabled:
+        return location_name, latitude, longitude
+
+    label = (location_name or "").strip()
+    if not label:
+        raise ValueError("A public location name is required when map display is enabled.")
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except (TypeError, ValueError):
+        raise ValueError("Valid latitude and longitude are required when map display is enabled.")
+
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise ValueError("Map coordinates are outside the valid latitude or longitude range.")
+    return label, latitude, longitude
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @bp.route("", methods=["GET"])
@@ -223,12 +246,21 @@ def create_grant(current_user):
                              "Upgrade to Medium Council or add the Community Voting add-on (+$50/mo)."
                 }), 403
 
-        if data.get("enable_mapping"):
-            if not can_use_feature(council, "grant_mapping"):
-                return jsonify({
-                    "error": "Grant Mapping is not included in your plan. "
-                             "Upgrade to Large Council or add the Grant Mapping add-on (+$100/mo)."
-                }), 403
+    if data.get("enable_mapping") and not can_use_feature(council, "grant_mapping"):
+        return jsonify({
+            "error": "Grant Mapping is not included in this council's plan. "
+                     "Upgrade to Medium Council or add the Grant Mapping add-on (+$50/mo)."
+        }), 403
+
+    try:
+        location_name, latitude, longitude = _validate_public_map_location(
+            bool(data.get("enable_mapping", False)),
+            data.get("location_name"),
+            data.get("latitude"),
+            data.get("longitude"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     try:
         opens_at = parse_api_datetime(data["opens_at"])
@@ -261,9 +293,9 @@ def create_grant(current_user):
         allow_multiple_applications=bool(data.get("allow_multiple_applications", False)),
         require_community_voting=bool(data.get("require_community_voting", False)),
         enable_mapping=bool(data.get("enable_mapping", False)),
-        location_name=data.get("location_name"),
-        latitude=data.get("latitude"),
-        longitude=data.get("longitude"),
+        location_name=location_name,
+        latitude=latitude,
+        longitude=longitude,
         address=data.get("address"),
         postcode=data.get("postcode"),
         state=data.get("state"),
@@ -299,6 +331,31 @@ def update_grant(current_user, grant_id):
         return scope_error
 
     data = request.get_json(silent=True) or {}
+    mapping_fields = {"enable_mapping", "location_name", "latitude", "longitude"}
+    if mapping_fields.intersection(data):
+        mapping_enabled = bool(data.get("enable_mapping", grant.enable_mapping))
+        if mapping_enabled:
+            council = db.session.get(Council, grant.council_id)
+            if not council or not can_use_feature(council, "grant_mapping"):
+                return jsonify({
+                    "error": "Grant Mapping is not included in this council's plan. "
+                             "Upgrade to Medium Council or add the Grant Mapping add-on (+$50/mo)."
+                }), 403
+        try:
+            location_name, latitude, longitude = _validate_public_map_location(
+                mapping_enabled,
+                data.get("location_name", grant.location_name),
+                data.get("latitude", grant.latitude),
+                data.get("longitude", grant.longitude),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        data.update({
+            "location_name": location_name,
+            "latitude": latitude,
+            "longitude": longitude,
+        })
+
     updatable = [
         "title", "description", "category", "total_budget",
         "max_amount_per_application", "min_amount_per_application",

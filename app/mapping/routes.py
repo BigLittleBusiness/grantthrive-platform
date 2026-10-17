@@ -39,8 +39,16 @@ def grants_geojson():
         db.session.query(Grant, application_stats.c.approved_project_count, application_stats.c.approved_funding, vote_stats.c.community_votes)
         .outerjoin(application_stats, application_stats.c.grant_id == Grant.id)
         .outerjoin(vote_stats, vote_stats.c.grant_id == Grant.id)
-        .filter(Grant.is_published.is_(True), Grant.latitude.isnot(None), Grant.longitude.isnot(None))
+        .filter(
+            Grant.is_published.is_(True),
+            Grant.enable_mapping.is_(True),
+            Grant.latitude.isnot(None),
+            Grant.longitude.isnot(None),
+        )
     )
+    council_id = request.args.get("council_id", type=int)
+    if council_id is not None:
+        query = query.filter(Grant.council_id == council_id)
     if request.args.get("category"):
         query = query.filter(Grant.category == request.args["category"])
     if request.args.get("status"):
@@ -80,7 +88,7 @@ def grants_geojson():
 
 @mapping.route("/grant-impact/<int:grant_id>")
 def grant_impact(grant_id):
-    grant = Grant.query.filter_by(id=grant_id, is_published=True).first()
+    grant = Grant.query.filter_by(id=grant_id, is_published=True, enable_mapping=True).first()
     if not grant:
         return jsonify({"error": "Grant not found"}), 404
 
