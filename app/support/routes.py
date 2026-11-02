@@ -86,7 +86,6 @@ CONTEXTUAL_TOPICS = (
             "council_administrator-20",
             "council_administrator-21",
             "council_administrator-22",
-            "council_staff_assessor-04",
         ),
     },
     {
@@ -191,8 +190,8 @@ CONTEXTUAL_TOPICS = (
             "system_administrator-29",
             "council_administrator-30",
             "council_staff_assessor-26",
-            "community_member-17",
-            "public_visitor-25",
+            "community_member-23",
+            "public_visitor-24",
         ),
     },
     {
@@ -203,8 +202,8 @@ CONTEXTUAL_TOPICS = (
             "system_administrator-30",
             "council_administrator-13",
             "council_staff_assessor-27",
-            "community_member-18",
-            "public_visitor-24",
+            "community_member-26",
+            "public_visitor-29",
         ),
     },
 )
@@ -218,11 +217,25 @@ GUARDRAILS = (
 )
 
 
+# These variants keep plain-language searches aligned with the approved FAQ's
+# terminology without broadening the search beyond all stated query concepts.
+SEARCH_TERM_VARIANTS = {
+    "reviewer": ("reviewer", "review", "recuse", "recusal", "assessor"),
+    "recusal": ("recusal", "recuse", "conflict"),
+    "vote": ("vote", "voting"),
+    "voting": ("vote", "voting"),
+}
+
+
 def _question_matches(question: dict, query: str) -> bool:
     """Case-insensitively match a query against approved question text or answer."""
     if not query:
         return True
-    return query in question["question"].casefold() or query in question["answer"].casefold()
+    searchable_text = f"{question['question']} {question['answer']}".casefold()
+    return all(
+        any(variant in searchable_text for variant in SEARCH_TERM_VARIANTS.get(term, (term,)))
+        for term in query.split()
+    )
 
 
 def _serialise_cohort(cohort_id: str, query: str) -> dict:
@@ -262,12 +275,16 @@ def _serialise_top_questions(role: str, permitted_ids: set[str], query: str) -> 
     return top_questions
 
 
-def _serialise_contextual_topics(permitted_ids: set[str]) -> list[dict]:
-    """Return only topics and question references safe for the current role."""
+def _serialise_contextual_topics(
+    permitted_ids: set[str], rendered_ids: set[str]
+) -> list[dict]:
+    """Return only visible topic question references safe for the current role."""
     topics = []
     for topic in CONTEXTUAL_TOPICS:
         permitted_topic_ids = [
-            question_id for question_id in topic["question_ids"] if question_id in permitted_ids
+            question_id
+            for question_id in topic["question_ids"]
+            if question_id in permitted_ids and question_id in rendered_ids
         ]
         if not permitted_topic_ids:
             continue
@@ -332,11 +349,17 @@ def guidance():
         "authenticated": authenticated,
         "cohorts": list(cohort_ids),
     }
+    cohorts = [_serialise_cohort(cohort_id, query) for cohort_id in cohort_ids]
+    rendered_ids = {
+        question["id"]
+        for cohort in cohorts
+        for question in cohort["questions"]
+    }
     return jsonify({
         "actor": actor,
-        "cohorts": [_serialise_cohort(cohort_id, query) for cohort_id in cohort_ids],
+        "cohorts": cohorts,
         "top_questions": _serialise_top_questions(actor_source["role"], permitted_ids, query),
-        "contextual_topics": _serialise_contextual_topics(permitted_ids),
+        "contextual_topics": _serialise_contextual_topics(permitted_ids, rendered_ids),
         "guardrails": list(GUARDRAILS),
         "total_questions": len(permitted_ids),
     })
